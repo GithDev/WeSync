@@ -26,10 +26,18 @@ if [ ! -f platform/android/app/src/main/jniLibs/arm64-v8a/libsyncthing.so ]; the
     exit 1
 fi
 
+# Build stamp injected via -ldflags so GET /api/status returns the real build
+# rather than the "dev" default. Mirrors what build.sh does for Linux/Windows.
+GIT_SHA="$(git -C /src rev-parse --short HEAD 2>/dev/null || echo nogit)"
+if [ -n "$(git -C /src status --porcelain 2>/dev/null)" ]; then GIT_SHA="${GIT_SHA}-dirty"; fi
+BUILD_STAMP="$(date -u +%Y%m%d-%H%M%S)-${GIT_SHA}"
+echo "[docker-build] stamp: ${BUILD_STAMP}"
+
 # --- 1. gomobile bind: ./mobile -> AAR ---------------------------------------
 echo "[docker-build] gomobile bind -> wesync.aar"
 mkdir -p platform/android/app/libs
 gomobile bind -target=android/arm64 -androidapi=21 \
+    -ldflags "-X wesync/internal/api.BuildTime=${BUILD_STAMP}" \
     -o platform/android/app/libs/wesync.aar ./mobile
 
 # --- 2. gradle: build the APK ------------------------------------------------
