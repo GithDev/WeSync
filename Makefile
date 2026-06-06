@@ -130,7 +130,7 @@ android: image-android
 # Signed release APK. Requires KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS,
 # KEY_PASSWORD to be set in the environment (CI injects these from secrets).
 android-release: image-android
-	@mkdir -p "$(DIST)/android"
+	@mkdir -p "$(DIST)/android" "$(ROOT)/platform/android/app/libs"
 	@rm -rf "$(ROOT)/mobile/webdist" && cp -r "$(ROOT)/web/dist" "$(ROOT)/mobile/webdist"
 	$(PODMAN) run --rm \
 		-v "$(ROOT):/src" -v "$(DIST)/android:/out" \
