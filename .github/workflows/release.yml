@@ -144,5 +144,5 @@ jobs:
             linux-dist/*.deb
             linux-dist/*.rpm
             windows-dist/*-setup.exe
-            android-dist/wesync-release.apk
+            android-dist/wesync-*.apk
           fail_on_unmatched_files: true
