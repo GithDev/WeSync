@@ -120,10 +120,13 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: make PODMAN=docker VERSION=$VERSION android-release
 
+      - name: Rename APK with version
+        run: mv dist/android/wesync-release.apk dist/android/wesync-$VERSION.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: android-dist
-          path: dist/android/wesync-release.apk
+          path: dist/android/wesync-*.apk
           if-no-files-found: error
 
   # ── 3. Publish release ───────────────────────────────────────────────────────
@@ -140,6 +143,6 @@ jobs:
           files: |
             linux-dist/*.deb
             linux-dist/*.rpm
-            windows-dist/*.exe
+            windows-dist/*-setup.exe
             android-dist/wesync-release.apk
           fail_on_unmatched_files: true

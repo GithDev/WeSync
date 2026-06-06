@@ -19,6 +19,7 @@ import android.util.Log
 import mobile.Mobile
 import org.json.JSONObject
 import java.util.Calendar
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -55,6 +56,7 @@ class PowerController(private val ctx: Context) {
     private var registeredLowBatteryReceiver = false
     private var registeredChargingReceiver = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val liveNetworkCaps = ConcurrentHashMap<Network, NetworkCapabilities>()
 
     // Serialises every reapply() onto one thread so two of them can't race
     // while re-reading settings and re-arming AlarmManager.
@@ -95,6 +97,7 @@ class PowerController(private val ctx: Context) {
             }
         }
         networkCallback = null
+        liveNetworkCaps.clear()
         cancelAlarms()
         reapplyExecutor.shutdownNow()
     }
@@ -261,6 +264,7 @@ class PowerController(private val ctx: Context) {
             }
         }
         networkCallback = null
+        liveNetworkCaps.clear()
         registerNetworkCallback()
     }
 
@@ -295,16 +299,18 @@ class PowerController(private val ctx: Context) {
                 ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO,
             ) {
                 override fun onAvailable(network: Network) = onNet(null)
-                override fun onLost(network: Network) = onNet(null)
-                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
-                    onNet(capabilities)
+                override fun onLost(network: Network) { liveNetworkCaps.remove(network); onNet(null) }
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    liveNetworkCaps[network] = capabilities; onNet(capabilities)
+                }
             }
         } else {
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) = onNet(null)
-                override fun onLost(network: Network) = onNet(null)
-                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
-                    onNet(capabilities)
+                override fun onLost(network: Network) { liveNetworkCaps.remove(network); onNet(null) }
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    liveNetworkCaps[network] = capabilities; onNet(capabilities)
+                }
             }
         }
     }
@@ -329,14 +335,11 @@ class PowerController(private val ctx: Context) {
         val activeWifi: Boolean,
     )
 
-    @SuppressLint("MissingPermission")
     private fun currentNetworkState(): NetState {
         var hasWifi = false
         var hasMobile = false
 
-        val networks = connectivityManager.allNetworks
-        for (n in networks) {
-            val caps = connectivityManager.getNetworkCapabilities(n) ?: continue
+        for (caps in liveNetworkCaps.values) {
             if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) hasWifi = true
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) hasMobile = true

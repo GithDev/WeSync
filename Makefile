@@ -115,6 +115,7 @@ windows: image-linux
 	@mkdir -p "$(DIST)/windows"
 	$(PODMAN) run --rm \
 		-v "$(ROOT):/src" -v "$(DIST)/windows:/out" $(GO_CACHE) \
+		-e WESYNC_VERSION=$(VERSION) \
 		$(IMAGE_LINUX) windows
 
 # ── android (refresh embedded web, then existing android image) ──────────────
