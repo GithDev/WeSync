@@ -93,6 +93,7 @@ jobs:
   android:
     needs: web
     runs-on: ubuntu-latest
+    environment: Secrets
     steps:
       - uses: actions/checkout@v4
         with:
