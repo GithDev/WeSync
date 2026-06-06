@@ -15,7 +15,7 @@
 # built outside the container and copied into mobile/webdist beforehand.
 
 # Fully-qualified so it resolves under podman too (no unqualified-search registries).
-FROM docker.io/library/golang:1.25-bookworm
+FROM docker.io/library/golang:1.26-bookworm
 
 # --- Versions (keep in sync with platform/android/app/build.gradle.kts) -------
 #
