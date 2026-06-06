@@ -18,6 +18,24 @@
 FROM docker.io/library/golang:1.25-bookworm
 
 # --- Versions (keep in sync with platform/android/app/build.gradle.kts) -------
+#
+# UPDATING THE ANDROID TOOLCHAIN
+# These versions are tightly coupled — update them together:
+#
+#   PLATFORM_VERSION / BUILD_TOOLS_VERSION / compileSdk / targetSdk
+#     Bump annually when Google Play requires a new target API level (usually
+#     ~1 year after a new Android release). Update here AND in app/build.gradle.kts.
+#     Google publishes the requirement at: https://developer.android.com/google/play/requirements/target-sdk
+#
+#   NDK_VERSION + GOMOBILE_VERSION
+#     gomobile is pinned to a specific NDK — never bump one without the other.
+#     Find a tested pair in the golang.org/x/mobile release notes or CHANGELOG.
+#     After bumping, rebuild libsyncthing.so and commit it.
+#
+#   CMDLINE_TOOLS_VERSION
+#     Safe to bump independently; just a download ID for the Android SDK CLI tools.
+#     Find the latest at: https://developer.android.com/studio#command-line-tools-only
+#
 ENV ANDROID_SDK_ROOT=/opt/android-sdk \
     ANDROID_HOME=/opt/android-sdk \
     NDK_VERSION=28.0.13004108 \

@@ -1,0 +1,72 @@
+name: Bump Syncthing
+
+# Checks every Monday if a new Syncthing release is available.
+# Opens a PR with the version bump and a checklist reminding the maintainer to
+# rebuild libsyncthing.so for Android before merging.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check versions
+        id: versions
+        run: |
+          current=$(grep 'SYNCTHING_VERSION ?=' Makefile | sed 's/.*= *//')
+          latest=$(curl -fsSL https://api.github.com/repos/syncthing/syncthing/releases/latest | jq -r .tag_name)
+          echo "current=$current" >> $GITHUB_OUTPUT
+          echo "latest=$latest" >> $GITHUB_OUTPUT
+
+          # Strip leading 'v' for semver comparison
+          cur_strip="${current#v}"
+          lat_strip="${latest#v}"
+
+          cur_minor=$(echo "$cur_strip" | cut -d. -f1-2)
+          lat_minor=$(echo "$lat_strip" | cut -d. -f1-2)
+
+          if [ "$current" != "$latest" ] && [ "$cur_minor" = "$lat_minor" ]; then
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Open PR
+        if: steps.versions.outputs.needs_update == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD="${{ steps.versions.outputs.current }}"
+          NEW="${{ steps.versions.outputs.latest }}"
+          BRANCH="bump/syncthing-${NEW}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          sed -i "s/SYNCTHING_VERSION ?= .*/SYNCTHING_VERSION ?= ${NEW}/" Makefile
+          git add Makefile
+          git commit -m "chore: bump Syncthing ${OLD} -> ${NEW}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: bump Syncthing ${OLD} -> ${NEW}" \
+            --body "$(cat <<EOF
+          Automated Syncthing version bump: **${OLD}** → **${NEW}**
+
+          Linux and Windows binaries are fetched at build time — no manual step for those.
+
+          **Before merging:**
+          - [ ] Rebuild \`platform/android/app/src/main/jniLibs/arm64-v8a/libsyncthing.so\` for ${NEW} and push it in this branch
+
+          [Release notes](https://github.com/syncthing/syncthing/releases/tag/${NEW})
+          EOF
+          )"
