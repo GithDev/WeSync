@@ -1,0 +1,1 @@
+Private peer-to-peer folder sync for your own devices, built on Syncthing.

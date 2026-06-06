@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=WeSync
+Comment=Sync files between your devices
+Exec=/opt/wesync/wesync-app
+Icon=app.wesync.WeSync
+Terminal=false
+Categories=Network;FileTransfer;Utility;
+StartupNotify=true

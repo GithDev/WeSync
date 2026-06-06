@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=WeSync
+Comment=Keeps your folders syncing in the background
+Exec=/opt/wesync/wesync-app --hidden
+Icon=app.wesync.WeSync
+Terminal=false
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,19 @@
+# WeSync backend service (systemd USER unit).
+# The desktop GUI (wesync-app) only proxies to this backend on :47820 — it does
+# not start it — so this unit is what actually runs WeSync + Syncthing.
+#
+# Enable per-user:   systemctl --user enable --now wesync
+[Unit]
+Description=WeSync backend service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# /proc/self/exe resolves the symlink, so wesync finds /opt/wesync/syncthing
+# beside it (FindSyncthing uses the real exe dir).
+ExecStart=/opt/wesync/wesync
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

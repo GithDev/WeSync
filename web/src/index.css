@@ -1,0 +1,104 @@
+@import 'tailwindcss';
+
+@layer base {
+  body {
+    @apply text-slate-900 bg-slate-50 antialiased text-base;
+  }
+
+  button:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+@keyframes discovery-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(1.35);
+  }
+}
+
+.animate-discovery-pulse {
+  animation: discovery-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes radar-sweep {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes radar-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Half-circle radar sweep.
+   Afterglow = 72° wide (20% of conic gradient).
+   Sweep must travel 72° underground on each side before the afterglow fully
+   disappears: range = ±(90° + 72°) = ±162°.
+   Keyframe percentages build in ease-in-out across the visible semicircle:
+     underground left  0–10%  → 72° in 10%  = 7.2°/%  (fast, invisible)
+     slow entry       10–25%  → 30° in 15%  = 2°/%    (slow)
+     fast middle      25–55%  → 120° in 30% = 4°/%    (fast)
+     slow exit        55–70%  → 30° in 15%  = 2°/%    (slow)
+     underground right 70–80% → 72° in 10%  = 7.2°/%  (fast, invisible)
+     pause            80–100% → stays at 162°, 1 s break */
+@keyframes radar-half-spin {
+  from {
+    transform: rotate(-162deg);
+  }
+
+  to {
+    transform: rotate(162deg);
+  }
+}
+
+.animate-radar-sweep {
+  animation: radar-sweep 3s linear infinite;
+}
+
+/* Indeterminate progress bar for folder scanning state */
+@keyframes scan-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.animate-scan-slide {
+  animation: scan-slide 1.4s ease-in-out infinite;
+  width: 25%;
+}

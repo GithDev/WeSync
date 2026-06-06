@@ -1,0 +1,7 @@
+# The build images only COPY their build scripts — the repo is mounted at run
+# time, not baked in. So keep the build context tiny: exclude everything heavy.
+# The build scripts are whitelisted at the end.
+*
+!platform/android/docker-build.sh
+!platform/linux/build.sh
+!platform/linux/flatpak/build-flatpak.sh

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata so GNOME Software / KDE Discover show "WeSync" + its icon
+     instead of the package name "wesync" + a generic placeholder. The <id> and
+     <launchable> tie the package to the installed .desktop (and thus its icon). -->
+<component type="desktop-application">
+  <id>app.wesync.WeSync</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>WeSync</name>
+  <summary>Sync files between your devices</summary>
+  <description>
+    <p>
+      WeSync keeps your folders in sync across your devices on your local
+      network, powered by the Syncthing engine.
+    </p>
+  </description>
+  <launchable type="desktop-id">app.wesync.WeSync.desktop</launchable>
+  <icon type="stock">app.wesync.WeSync</icon>
+  <categories>
+    <category>Network</category>
+    <category>FileTransfer</category>
+    <category>Utility</category>
+  </categories>
+  <url type="homepage">https://github.com/syncthing/syncthing</url>
+  <provides>
+    <binary>wesync</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>

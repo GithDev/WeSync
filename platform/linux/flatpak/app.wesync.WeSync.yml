@@ -1,0 +1,57 @@
+# Flatpak manifest for WeSync — the cross-distro native desktop build.
+#
+# Thin packaging layer over the binaries we already build in the wesync-linux
+# image (wesync + wesync-app + syncthing). NOTHING is compiled here: the "simple"
+# module just installs the prebuilt files. flatpak-builder stages them from the
+# build dir (see platform/linux/flatpak/build-flatpak.sh, which copies the
+# binaries next to this manifest before building).
+#
+# Runtime 47 ships GTK3 + webkit2gtk-4.1 (built against libsoup3) — exactly what
+# the Wails app links (-tags webkit2_41). The whole bundle is co-located in
+# /app/bin so wesync finds syncthing beside it (FindSyncthing uses the exe dir).
+app-id: app.wesync.WeSync
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: wesync-launch
+
+# Binaries are prebuilt Go (wesync is already -s -w stripped). Don't let
+# flatpak-builder run eu-strip/eu-elfcompress on them — it isn't in the builder
+# image and there's nothing useful to extract from these anyway.
+build-options:
+  strip: false
+  no-debuginfo: true
+
+finish-args:
+  # Syncthing + peerwire + the GUI->backend localhost proxy (shared host net so
+  # both `flatpak run` instances see the same loopback :47820).
+  - --share=network
+  - --share=ipc
+  # Display (Wayland with X11 fallback) + GPU for WebKit rendering.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # A sync tool needs the user's files; also covers writing the autostart entry
+  # to ~/.config/autostart (read by the host session at login).
+  - --filesystem=home
+  # Tray icon + future notifications where the desktop supports them.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  - name: wesync
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 wesync       /app/bin/wesync
+      - install -Dm755 wesync-app   /app/bin/wesync-app
+      - install -Dm755 syncthing    /app/bin/syncthing
+      - install -Dm755 wesync-launch /app/bin/wesync-launch
+      - install -Dm644 app.wesync.WeSync.desktop /app/share/applications/app.wesync.WeSync.desktop
+      - install -Dm644 app.wesync.WeSync.png     /app/share/icons/hicolor/512x512/apps/app.wesync.WeSync.png
+    sources:
+      - { type: file, path: wesync }
+      - { type: file, path: wesync-app }
+      - { type: file, path: syncthing }
+      - { type: file, path: wesync-launch }
+      - { type: file, path: app.wesync.WeSync.desktop }
+      - { type: file, path: app.wesync.WeSync.png }

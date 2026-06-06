@@ -1,0 +1,18 @@
+{
+  "RT_GROUP_ICON": {
+    "#3": {
+      "0000": "../../../icons/web/icon-512.png"
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "identity": { "name": "WeSync", "version": "" },
+        "description": "WeSync",
+        "minimum-os": "win7",
+        "execution-level": "as invoker",
+        "dpi-awareness": "per monitor v2"
+      }
+    }
+  }
+}

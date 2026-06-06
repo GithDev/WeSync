@@ -1,0 +1,14 @@
+WeSync keeps folders in sync across your own devices — phone, laptop, desktop —
+without any cloud account or central server. Your files travel directly between
+your devices over your own network.
+
+Built on Syncthing, WeSync wraps it in a simple, one-knob experience:
+
+* Pair devices you trust, then share a folder — that is the whole setup.
+* No cloud, no account, no third party ever holds your files.
+* Power-aware on Android: WeSync only wakes and syncs when it makes sense, so
+  it stays light on your battery instead of running around the clock.
+* Stays quiet on networks you have not chosen — it won't announce itself on a
+  café or guest Wi-Fi.
+
+WeSync is free and open source.

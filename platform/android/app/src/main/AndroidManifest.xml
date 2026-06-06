@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Networking: peerwire + Syncthing BEP both need internet + LAN. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- The backend is a foreground service so Android doesn't kill it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Partial WakeLock held only while a sync session is open, so the CPU
+         doesn't doze-suspend mid-transfer after an alarm/file-change wake-up. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- The single biggest lever against OEM/Doze killing our foreground
+         service. Without an exemption, aggressive vendors (Samsung, Xiaomi,
+         Huawei, …) reclaim the process within minutes — taking the bundled
+         Syncthing down with it. We prompt for it once at boot. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Restart WeSync after a reboot so background sync resumes without the
+         user reopening the app. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Folder access: the bundled Syncthing reads/writes the user-picked
+         folder via regular POSIX I/O. Without MANAGE_EXTERNAL_STORAGE it
+         gets EACCES on every /storage/emulated/0/... path. Triggers an
+         opt-in screen sent to system settings; user must flip the toggle. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <!-- Legacy permissions for pre-API-30 devices (won't grant on 30+,
+         which is why MANAGE_EXTERNAL_STORAGE is the modern path). -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
+    <!-- Optional, only used by the Trusted WiFi gate. Android won't return a
+         real SSID without ACCESS_FINE_LOCATION since API 29, and won't return
+         it AT ALL to a backgrounded app without ACCESS_BACKGROUND_LOCATION —
+         which is exactly when the gate needs it (the app is closed while a
+         trigger fires). Both are requested only when the user opts into
+         "Trusted WiFi"; if they never do, neither is ever asked for. The SSID
+         is read purely event-driven (the connectivity callback), never polled,
+         so holding these costs nothing at rest. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:usesCleartextTraffic="true"
+        android:allowBackup="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".WeSyncService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".TriggerReceiver"
+            android:exported="false" />
+
+        <!-- exported=true: BOOT_COMPLETED is delivered by the system, so the
+             receiver must be visible to it. Android only delivers it once the
+             app has been launched manually at least once since install. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

@@ -1,0 +1,82 @@
+# nfpm manifest for the WeSync Linux bundle (.deb + .rpm) — Windows-like model:
+# install sets up autostart + starts it, uninstall stops + removes everything.
+# Run by platform/linux/build.sh inside the toolchain container:
+#   - binaries are read from /out (built earlier in the same run)
+#   - committed aux files are read from /src
+# ${WESYNC_VERSION} / ${WESYNC_ARCH} are expanded from the environment by nfpm.
+name: wesync
+arch: ${WESYNC_ARCH}
+platform: linux
+version: ${WESYNC_VERSION}
+section: net
+priority: optional
+maintainer: WeSync <noreply@wesync.local>
+vendor: WeSync
+homepage: https://github.com/syncthing/syncthing
+license: MIT
+description: |
+  Sync files between your devices.
+  Bundles the WeSync backend, the desktop GUI, and the Syncthing engine.
+  Autostarts at login (like the Windows build) and is fully removed on uninstall.
+
+# Pull in the GUI's runtime libraries so `wesync-app` works straight after
+# install (GTK3 + WebKit2GTK 4.1 + appindicator for the tray). Names differ per
+# distro family.
+overrides:
+  deb:
+    depends:
+      - libgtk-3-0
+      - libwebkit2gtk-4.1-0
+      - libayatana-appindicator3-1
+  rpm:
+    depends:
+      - gtk3
+      - webkit2gtk4.1
+      - libappindicator-gtk3
+
+contents:
+  # Own the install dir so it's removed (when empty) on uninstall — otherwise an
+  # empty /opt/wesync lingers and "uninstall removed everything" isn't quite true.
+  - dst: /opt/wesync
+    type: dir
+
+  # --- the bundle: everything co-located so wesync finds syncthing beside it ---
+  - src: /out/wesync
+    dst: /opt/wesync/wesync
+  - src: /out/wesync-app
+    dst: /opt/wesync/wesync-app
+  - src: /out/syncthing
+    dst: /opt/wesync/syncthing
+
+  # --- desktop integration ---------------------------------------------------
+  # Named by the reverse-DNS app-id so the Wayland app_id (ProgramName in
+  # cmd/app/main.go) matches the .desktop and GNOME shows the window icon.
+  - src: /src/icons/web/icon-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/app.wesync.WeSync.png
+  - src: /src/platform/linux/packaging/wesync.desktop
+    dst: /usr/share/applications/app.wesync.WeSync.desktop
+  # AppStream metadata so GNOME Software shows "WeSync" + icon, not "wesync" + gear.
+  - src: /src/platform/linux/packaging/app.wesync.WeSync.metainfo.xml
+    dst: /usr/share/metainfo/app.wesync.WeSync.metainfo.xml
+  # Autostart at login (the Linux equivalent of the Windows Run key): launches
+  # the GUI hidden so it starts the backend + Syncthing and connects the webview
+  # (which ungates discovery/wire) without popping a window.
+  - src: /src/platform/linux/packaging/wesync-autostart.desktop
+    dst: /etc/xdg/autostart/app.wesync.WeSync.desktop
+
+  # --- CLI symlinks (target resolves via /proc/self/exe -> finds syncthing) ---
+  - src: /opt/wesync/wesync
+    dst: /usr/bin/wesync
+    type: symlink
+  - src: /opt/wesync/wesync-app
+    dst: /usr/bin/wesync-app
+    type: symlink
+
+scripts:
+  postinstall: /src/platform/linux/packaging/postinstall.sh
+  postremove: /src/platform/linux/packaging/postremove.sh
+
+rpm:
+  compression: gzip
+deb:
+  compression: gzip
