@@ -24,6 +24,7 @@ fi
 
 # --- 1. gomobile bind: ./mobile -> AAR ---------------------------------------
 echo "[docker-build] gomobile bind -> wesync.aar"
+mkdir -p platform/android/app/libs
 gomobile bind -target=android/arm64 -androidapi=21 \
     -o platform/android/app/libs/wesync.aar ./mobile
 
