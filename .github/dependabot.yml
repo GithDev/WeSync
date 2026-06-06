@@ -40,10 +40,3 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
-  - package-ecosystem: "npm"
-    directory: "/web"
-    schedule:
-      interval: "weekly"
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
