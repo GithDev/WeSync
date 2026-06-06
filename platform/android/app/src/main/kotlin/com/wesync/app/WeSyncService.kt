@@ -152,9 +152,10 @@ class WeSyncService : Service(), mobile.PowerHost {
             }
             ACTION_BOOT -> {
                 // Device just rebooted, no UI. Start the gate (arms alarms)
-                // then schedule the normal self-stop: periodic/scheduled don't
-                // need to sit resident (the alarm wakes us), while on_change /
-                // charging keep us alive via shouldStayResident.
+                // then schedule the normal self-stop: periodic/scheduled/on_change_poll
+                // don't need to sit resident (the alarm wakes us each time), while
+                // on_change (live file watcher) and charging keep us alive via
+                // shouldStayResident.
                 if (!powerStarted) {
                     powerStarted = true
                     power?.start()

@@ -23,7 +23,7 @@ const DEFAULTS: PowerSettings = {
   syncTrigger: 'on_change',
   periodicMinutes: 240,
   scheduledTimes: [],
-  onChangeDebounceMinutes: 1,
+  onChangeDebounceMinutes: 5,
   networkMode: 'any_wifi',
   trustedSSIDs: [],
   pauseWhenBatteryLow: true,

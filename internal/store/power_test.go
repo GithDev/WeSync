@@ -15,7 +15,7 @@ func TestPowerSettings_Defaults(t *testing.T) {
 		SyncTrigger:              "on_change",
 		PeriodicMinutes:          240,
 		ScheduledTimes:           []string{},
-		OnChangeDebounceMinutes:  1,
+		OnChangeDebounceMinutes:  5,
 		NetworkMode:              "any_wifi",
 		TrustedSSIDs:             []string{},
 		PauseWhenBatteryLow:      true,

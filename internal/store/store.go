@@ -166,7 +166,7 @@ func (s *Store) GetPowerSettings() (PowerSettings, error) {
 		p.PeriodicMinutes = 240
 	}
 	if p.OnChangeDebounceMinutes <= 0 {
-		p.OnChangeDebounceMinutes = 1
+		p.OnChangeDebounceMinutes = 5
 	}
 	if p.NetworkMode == "" {
 		p.NetworkMode = "any_wifi"

@@ -51,6 +51,7 @@ func refreshSettingsFromDB() error {
 // and reset its ST fsWatcher delay to the default.
 func onFoldersChanged() {
 	restartWatcherIfActive()
+	resetPollSnapshot()
 	go applyFSWatcherDelay()
 }
 

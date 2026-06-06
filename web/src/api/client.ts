@@ -2,7 +2,7 @@
 // fields are present in every payload — defaults applied server-side
 // before persisting so the client never has to do partial-update logic.
 export interface PowerSettings {
-  syncTrigger: 'periodic' | 'scheduled' | 'on_change';
+  syncTrigger: 'periodic' | 'scheduled' | 'on_change' | 'on_change_poll';
   periodicMinutes: number;
   scheduledTimes: string[];
   onChangeDebounceMinutes: number;

@@ -32,7 +32,7 @@ type Settings struct {
 	// Debounce delay for "on_change": pushed into each folder's ST fsWatcher
 	// (fsWatcherDelayS) so ST coalesces a flurry of edits into one sync after
 	// things settle, instead of syncing on every keystroke.
-	PowerOnChangeDebounceMinutes int `gorm:"column:power_on_change_debounce_minutes;not null;default:1"`
+	PowerOnChangeDebounceMinutes int `gorm:"column:power_on_change_debounce_minutes;not null;default:5"`
 
 	// When charging, run ST continuously regardless of the trigger/battery
 	// gate — battery isn't a concern when plugged in. Still respects the

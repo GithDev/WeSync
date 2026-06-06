@@ -104,10 +104,13 @@ func OnBatteryLow(low bool) {
 // OnTriggerAlarm is called by Android's AlarmManager on every scheduled wake.
 // periodic/scheduled always open a session. on_change treats the alarm as its
 // BACKSTOP tick: it opens one only when there's something to do — local changes
-// pending (dirty), or a folder that can receive (not sendonly). An all-sendonly
-// device with nothing pending has nothing to sync, so it keeps sleeping instead
-// of burning a wake on an empty scan. Routing the mode decision here keeps it in
-// one place (the gate); Android just calls this on every alarm.
+// pending (dirty), or a folder that can receive (not sendonly). on_change_poll
+// uses the alarm as its PRIMARY trigger: it checks directory mtimes and opens
+// a session only if any directory structurally changed (files added, deleted,
+// or renamed), or if any folder can receive. Both
+// on_change variants stay asleep when all folders are send-only and nothing is
+// pending. Routing the mode decision here keeps it in one place (the gate);
+// Android just calls this on every alarm.
 func OnTriggerAlarm() {
 	g.mu.Lock()
 	trigger := g.settings.SyncTrigger
@@ -122,6 +125,20 @@ func OnTriggerAlarm() {
 			g.emitEvent("tick", "backstop — nothing pending, all send-only; staying asleep")
 			return
 		}
+	}
+	if trigger == "on_change_poll" {
+		changed := pollCheckChanged()
+		if !changed {
+			if folders, err := stmanager.Folders(); err == nil && !anyFolderReceives(folders) {
+				g.emitEvent("tick", "poll — no changes, all send-only; staying asleep")
+				return
+			}
+			g.emitEvent("tick", "poll — no local changes; opening session to receive from peers")
+		} else {
+			g.emitEvent("tick", "poll — changes detected")
+		}
+		OpenSyncSession()
+		return
 	}
 	OpenSyncSession()
 }

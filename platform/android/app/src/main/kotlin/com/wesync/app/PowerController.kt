@@ -465,11 +465,11 @@ class PowerController(private val ctx: Context) {
     private fun rearmAlarms(p: WakePlan) {
         cancelAlarms()
         when (p.mode) {
-            "periodic", "on_change" -> {
-                // periodic: this is the only trigger. on_change: this is the
-                // BACKSTOP tick behind the live file watcher — it catches changes
-                // the watcher missed and retries a backup whose peer was offline.
-                // Either way it's the same doze-friendly self-rearming alarm
+            "periodic", "on_change", "on_change_poll" -> {
+                // periodic: only trigger. on_change: backstop tick behind the live
+                // file watcher. on_change_poll: the primary trigger (snapshot diff
+                // at each alarm replaces the continuous watcher).
+                // All three use the same doze-friendly self-rearming alarm
                 // (setAndAllowWhileIdle + RTC_WAKEUP; plain setInexactRepeating
                 // never fires during doze). The gate (Mobile.onTriggerAlarm)
                 // decides whether the on_change tick actually opens a session, so

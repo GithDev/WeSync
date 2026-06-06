@@ -7,10 +7,11 @@ import android.util.Log
 import mobile.Mobile
 
 // Fires when AlarmManager wakes us for a periodic interval, a scheduled time,
-// or an on_change backstop tick. Just hands the wake to the gate via
-// Mobile.onTriggerAlarm() — the gate decides what it means: periodic/scheduled
-// always open a sync window, while the on_change tick only opens one if there's
-// something to do (local changes pending, or a folder that can receive).
+// an on_change backstop tick, or an on_change_poll snapshot check. Just hands
+// the wake to the gate via Mobile.onTriggerAlarm() — the gate decides what it
+// means: periodic/scheduled always open a sync window; on_change opens one only
+// if local changes are pending or a folder can receive; on_change_poll checks
+// directory mtimes and opens one only if a directory structurally changed or a folder can receive.
 // Network/battery gates may still keep ST off after that.
 //
 // For scheduled mode we also need to re-arm the next occurrence after we

@@ -577,7 +577,7 @@ func (h *Handlers) Power(w http.ResponseWriter, r *http.Request) {
 		// Defensive validation — clamp / fix common mistakes so the gate
 		// can rely on these values without re-checking.
 		switch p.SyncTrigger {
-		case "periodic", "scheduled", "on_change":
+		case "periodic", "scheduled", "on_change", "on_change_poll":
 		default:
 			p.SyncTrigger = "periodic"
 		}
