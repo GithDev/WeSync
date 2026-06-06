@@ -133,5 +133,5 @@ dependencies {
     // unit tests stubs org.json to throw "Stub!", so we add the real
     // implementation explicitly; on the test classpath it shadows the stub.
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20231013")
+    testImplementation("org.json:json:20260522")
 }
