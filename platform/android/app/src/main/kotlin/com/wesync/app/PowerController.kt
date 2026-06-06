@@ -285,6 +285,19 @@ class PowerController(private val ctx: Context) {
         } catch (t: Throwable) {
             Log.w(TAG, "registerNetworkCallback failed", t)
         }
+        // Seed liveNetworkCaps with already-known networks so that
+        // currentNetworkState() doesn't return hasWifi=false during the
+        // initial window before any callbacks are delivered. This matters
+        // most for background cold-starts (AlarmManager wake with no UI):
+        // Android fires no network callbacks if the network didn't change,
+        // so without this seed the gate would see no WiFi and silently skip
+        // a sync on trusted_wifi mode even when the device is on the right
+        // network. Callbacks take over from here and keep the map current.
+        connectivityManager.allNetworks.forEach { network ->
+            connectivityManager.getNetworkCapabilities(network)?.let { caps ->
+                liveNetworkCaps[network] = caps
+            }
+        }
     }
 
     // On Android 12+ (S) we MUST register with FLAG_INCLUDE_LOCATION_INFO or

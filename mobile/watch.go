@@ -153,6 +153,7 @@ func startWatcher() {
 	fileWatch = w
 	go w.consume()
 	g.emitEvent("watch", "watching "+strconv.Itoa(watched)+" folder(s) for changes")
+	g.notifyWatcherHost(true)
 }
 
 func stopWatcher() {
@@ -166,6 +167,7 @@ func stopWatcher() {
 	notify.Stop(fileWatch.ch)
 	close(fileWatch.ch)
 	fileWatch = nil
+	g.notifyWatcherHost(false)
 }
 
 // consume drains inotify events: every event marks us dirty (so the backstop

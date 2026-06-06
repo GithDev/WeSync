@@ -215,14 +215,19 @@ func ShouldStayResident() bool {
 func SetPowerHost(h PowerHost) {
 	g.mu.Lock()
 	g.host = h
-	last := g.lastSyncActive
+	lastSync := g.lastSyncActive
+	lastWatcher := g.lastWatcherActive
 	g.mu.Unlock()
 	// Re-assert current state so a freshly-registered host isn't left
-	// out of sync with a session that's already running.
+	// out of sync with a session or watcher that's already running.
 	if h != nil {
 		func() {
 			defer func() { _ = recover() }()
-			h.OnSyncActive(last)
+			h.OnSyncActive(lastSync)
+		}()
+		func() {
+			defer func() { _ = recover() }()
+			h.OnWatcherActive(lastWatcher)
 		}()
 	}
 }

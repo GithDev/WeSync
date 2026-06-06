@@ -103,6 +103,13 @@ const (
 // decides, the host reacts. Implemented in Kotlin by WeSyncService.
 type PowerHost interface {
 	OnSyncActive(active bool)
+	// OnWatcherActive is called when the on_change file watcher starts or
+	// stops. The host must hold a PARTIAL_WAKE_LOCK for exactly as long as
+	// the watcher is active — without it the Go runtime freezes under doze
+	// and inotify events are never delivered to the consume() goroutine.
+	// This lock is independent of OnSyncActive: it is held even while ST
+	// sleeps between syncs, which is the whole point of on_change mode.
+	OnWatcherActive(active bool)
 }
 
 type gate struct {
@@ -162,8 +169,9 @@ type gate struct {
 	// evaluate" signal; the loop owns all start/stop of ST.
 	kick chan struct{}
 
-	host           PowerHost
-	lastSyncActive bool // dedupe host notifications
+	host              PowerHost
+	lastSyncActive    bool // dedupe host notifications
+	lastWatcherActive bool // dedupe watcher-lock notifications
 }
 
 var g = &gate{}
@@ -225,7 +233,7 @@ func (g *gate) markStopped() {
 	g.stallPolls = 0
 	g.lastTransferBytes = 0
 	g.mu.Unlock()
-	stopWatcher()        // tear down the on_change file watcher + its inotify handles
+	stopWatcher()        // tear down the on_change file watcher + its inotify handles (also calls notifyWatcherHost(false))
 	g.requestReconcile() // let the loop stop its poll ticker
 	g.notifyHost(false)  // release the radio/CPU locks on the host
 }

@@ -147,6 +147,23 @@ func (g *gate) notifyHost(active bool) {
 	}()
 }
 
+// notifyWatcherHost pushes watcher on/off edges to the platform wrapper so it
+// can hold/release the watcher WakeLock. Deduped on transitions like notifyHost.
+func (g *gate) notifyWatcherHost(active bool) {
+	g.mu.Lock()
+	h := g.host
+	changed := g.lastWatcherActive != active
+	g.lastWatcherActive = active
+	g.mu.Unlock()
+	if h == nil || !changed {
+		return
+	}
+	func() {
+		defer func() { _ = recover() }()
+		h.OnWatcherActive(active)
+	}()
+}
+
 // reconcileDirty asks ST whether every accepted peer is caught up with us and
 // sets the gate's dirty flag to match. Called while a session is open and ST has
 // gone idle — at that point ST's completion view is authoritative, so this both
