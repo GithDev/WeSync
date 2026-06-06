@@ -11,6 +11,10 @@ GRADLE_TASK="${1:-assembleRelease}"
 
 cd /src
 
+# Mark /src safe so git commands (e.g. in build.gradle.kts) work when the repo
+# is owned by a different UID than the container user (mounted Windows tree).
+git config --global --add safe.directory /src 2>/dev/null || true
+
 # --- preconditions -----------------------------------------------------------
 if [ ! -f mobile/webdist/index.html ]; then
     echo "ERROR: mobile/webdist/index.html missing." >&2
