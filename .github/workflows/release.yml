@@ -1,17 +1,16 @@
-name: Release Android APK
+name: Release
 
-# Builds a signed release APK and attaches it to a GitHub Release whenever a
-# v* tag is pushed. IzzyOnDroid polls these releases to pick up new versions.
+# Builds all installable artifacts and attaches them to a GitHub Release
+# whenever a v* tag is pushed.
 #
-# Required repository Secrets (Settings -> Secrets and variables -> Actions):
-#   KEYSTORE_BASE64    - the release keystore, base64-encoded
-#                        (`base64 -w0 release.jks` / on macOS `base64 -i ...`)
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   KEYSTORE_BASE64    - the Android release keystore, base64-encoded
 #   KEYSTORE_PASSWORD  - keystore password
 #   KEY_ALIAS          - key alias inside the keystore
 #   KEY_PASSWORD       - key password
 #
-# The SAME keystore must be used for every release — IzzyOnDroid (and Android)
-# reject an update signed with a different key. Keep it backed up safely.
+# The same keystore must be used for every release — Android rejects an update
+# signed with a different key. Keep the .jks file backed up safely.
 
 on:
   push:
@@ -20,7 +19,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write # needed to create/attach the GitHub Release
+  contents: write
 
 jobs:
   build:
@@ -28,56 +27,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so build.gradle.kts can derive versionCode from the
-          # commit count (git rev-list --count HEAD).
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build web UI
-        working-directory: web
-        run: |
-          npm ci
-          npm run build
-
-      - name: Stage web/dist into mobile/webdist
-        # The AAR embeds mobile/webdist (mobile/static.go). The container does
-        # NOT build the web itself, so we populate it here first.
-        run: |
-          rm -rf mobile/webdist
-          cp -r web/dist mobile/webdist
-
-      - name: Build toolchain image
-        run: docker build -f platform/android/Dockerfile -t wesync-android .
+      - name: Set version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
-      - name: Build signed release APK
+      - name: Build web UI
+        run: make PODMAN=docker VERSION=$VERSION web
+
+      - name: Build Linux packages (.deb + .rpm)
+        run: make PODMAN=docker VERSION=$VERSION linux-pkg
+
+      - name: Build Windows installer
+        run: make PODMAN=docker VERSION=$VERSION windows
+
+      - name: Build signed Android APK
         env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          mkdir -p dist/android
-          docker run --rm \
-            -v "$PWD:/src" \
-            -v "$PWD/dist/android:/out" \
-            -v "$RUNNER_TEMP/release.jks:/keystore.jks:ro" \
-            -e KEYSTORE_PATH=/keystore.jks \
-            -e KEYSTORE_PASSWORD \
-            -e KEY_ALIAS \
-            -e KEY_PASSWORD \
-            wesync-android assembleRelease
+        run: make PODMAN=docker VERSION=$VERSION android-release
 
-      - name: Attach APK to GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/android/wesync-release.apk
+          draft: true
+          name: "WeSync ${{ github.ref_name }}"
+          files: |
+            dist/linux/*.deb
+            dist/linux/*.rpm
+            dist/windows/*.exe
+            dist/android/wesync-release.apk
           fail_on_unmatched_files: true

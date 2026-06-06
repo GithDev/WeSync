@@ -56,6 +56,7 @@ help:
 	@echo "  make linux-flatpak   (legacy) Flatpak bundle -> dist/linux/wesync-<ver>.flatpak"
 	@echo "  make windows         Full Windows installer (svc+GUI+syncthing+NSIS) -> dist/windows/WeSync-<ver>-setup.exe"
 	@echo "  make android         Debug APK                     -> dist/android/  (uses platform/android image)"
+	@echo "  make android-release Signed release APK           -> dist/android/wesync-release.apk  (needs KEYSTORE_* env vars)"
 	@echo "  make all             ALL installables: web + flatpak + .deb/.rpm + Windows installer + APK"
 	@echo "  make clean           Remove dist/ artifacts"
 	@echo "  make clean-cache     Remove the cache volumes ($(GOBUILD_VOL), $(GOMOD_VOL), $(NODE_VOL))"
@@ -117,7 +118,7 @@ windows: image-linux
 		$(IMAGE_LINUX) windows
 
 # ── android (refresh embedded web, then existing android image) ──────────────
-.PHONY: android
+.PHONY: android android-release
 android: image-android
 	@mkdir -p "$(DIST)/android"
 	@echo "== refresh mobile/webdist from web/dist =="
@@ -125,6 +126,20 @@ android: image-android
 	$(PODMAN) run --rm \
 		-v "$(ROOT):/src" -v "$(DIST)/android:/out" \
 		$(IMAGE_ANDROID) assembleDebug
+
+# Signed release APK. Requires KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS,
+# KEY_PASSWORD to be set in the environment (CI injects these from secrets).
+android-release: image-android
+	@mkdir -p "$(DIST)/android"
+	@rm -rf "$(ROOT)/mobile/webdist" && cp -r "$(ROOT)/web/dist" "$(ROOT)/mobile/webdist"
+	$(PODMAN) run --rm \
+		-v "$(ROOT):/src" -v "$(DIST)/android:/out" \
+		-v "$(KEYSTORE_PATH):/keystore.jks:ro" \
+		-e KEYSTORE_PATH=/keystore.jks \
+		-e KEYSTORE_PASSWORD \
+		-e KEY_ALIAS \
+		-e KEY_PASSWORD \
+		$(IMAGE_ANDROID) assembleRelease
 
 # ── everything ──────────────────────────────────────────────────────────────
 # The full set of INSTALLABLE artifacts across platforms (not just raw binaries):
