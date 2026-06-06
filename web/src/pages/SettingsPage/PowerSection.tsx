@@ -31,7 +31,7 @@ const DEFAULTS: PowerSettings = {
   blockMeteredRoaming: true,
 };
 
-const PERIODIC_OPTIONS = [15, 30, 60, 120, 240];
+const PERIODIC_OPTIONS = [15, 30, 60, 120, 240, 480];
 const DEBOUNCE_OPTIONS = [1, 2, 5, 10, 15, 30, 60];
 
 const fmtMinutes = (m: number): string => (m < 60 ? `${m} min` : `${m / 60} h`);
@@ -236,7 +236,7 @@ export function PowerSection() {
           {settings.syncTrigger === 'on_change' && (
             <div className="ml-7 flex flex-col gap-2">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-500">Wait</label>
+                <span className="text-xs text-slate-500">Sync within</span>
                 <MinutesSelect
                   options={DEBOUNCE_OPTIONS}
                   value={settings.onChangeDebounceMinutes}
@@ -245,9 +245,7 @@ export function PowerSection() {
                   }
                   disabled={saving}
                 />
-                <span className="text-xs text-slate-400">
-                  after the first change before syncing
-                </span>
+                <span className="text-xs text-slate-400">of a change</span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-slate-500">Also check every</label>
