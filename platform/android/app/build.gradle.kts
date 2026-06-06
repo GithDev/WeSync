@@ -126,7 +126,7 @@ dependencies {
 
     // Standard AndroidX baseline. WebView is in the platform; we just need
     // AppCompatActivity as the container.
-    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.appcompat:appcompat:1.7.1")
 
     // JVM unit tests for the pure power logic (PowerLogic.kt). These run on
     // the local JVM — no device, no Robolectric. The android.jar shipped to
