@@ -3,6 +3,7 @@ package mobile
 import (
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,8 +67,11 @@ func scanDirMtimes(root string, snap map[string]time.Time) {
 		if !d.IsDir() {
 			return nil
 		}
-		switch d.Name() {
-		case ".stversions", ".stfolder":
+		// Skip all hidden directories (dot-prefix). This covers Syncthing's own
+		// internal dirs (.stversions, .stfolder), version-control (.git), and
+		// large tool caches (node_modules/.cache etc.) without hardcoding names.
+		// The root itself is exempted so a folder path starting with '.' still works.
+		if path != root && strings.HasPrefix(d.Name(), ".") {
 			return filepath.SkipDir
 		}
 		info, err := d.Info()

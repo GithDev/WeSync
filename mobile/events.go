@@ -102,31 +102,42 @@ func OnBatteryLow(low bool) {
 }
 
 // OnTriggerAlarm is called by Android's AlarmManager on every scheduled wake.
-// periodic/scheduled always open a session. on_change treats the alarm as its
-// BACKSTOP tick: it opens one only when there's something to do — local changes
-// pending (dirty), or a folder that can receive (not sendonly). on_change_poll
-// uses the alarm as its PRIMARY trigger: it checks directory mtimes and opens
-// a session only if any directory structurally changed (files added, deleted,
-// or renamed), or if any folder can receive. Both
-// on_change variants stay asleep when all folders are send-only and nothing is
-// pending. Routing the mode decision here keeps it in one place (the gate);
-// Android just calls this on every alarm.
+// Power conditions are checked first — no point doing any work if ST can't run.
+// Then trigger-specific logic decides whether to open a sync session:
+//   - periodic/scheduled: always open one.
+//   - on_change: backstop tick — skip if nothing local is pending and all folders
+//     are send-only (nothing to receive either).
+//   - on_change_poll: primary trigger — compare directory mtimes; open a session
+//     only when a structural change was detected or a folder can receive. Leaving
+//     the snapshot stale while conditions aren't met means changes accumulate and
+//     are caught the moment conditions clear.
 func OnTriggerAlarm() {
 	g.mu.Lock()
 	trigger := g.settings.SyncTrigger
 	dirty := g.dirty
+	snap := g.snapshotLocked()
 	g.mu.Unlock()
 
-	if trigger == "on_change" && !dirty {
-		// Nothing pending locally — the tick only still matters if a folder can
-		// receive. On a read error, be safe and open a session rather than risk
-		// silently skipping a backup.
-		if folders, err := stmanager.Folders(); err == nil && !anyFolderReceives(folders) {
-			g.emitEvent("tick", "backstop — nothing pending, all send-only; staying asleep")
-			return
-		}
+	// Global power gate. Network is absolute; charging overrides battery but not
+	// network — mirrors desiredRunning's precedence exactly. No trigger mode
+	// should scan or open a session when ST would immediately be gated off.
+	chargingOverride := snap.charging && snap.settings.KeepSyncingWhileCharging
+	if !snap.networkAllowed() || (!snap.batteryAllowed() && !chargingOverride) {
+		g.emitEvent("tick", "conditions not met; alarm ignored")
+		return
 	}
-	if trigger == "on_change_poll" {
+
+	switch trigger {
+	case "on_change":
+		// Backstop tick behind the live file watcher. Skip if nothing is pending
+		// locally and all folders are send-only — nothing to send or receive.
+		if !dirty {
+			if folders, err := stmanager.Folders(); err == nil && !anyFolderReceives(folders) {
+				g.emitEvent("tick", "backstop — nothing pending, all send-only; staying asleep")
+				return
+			}
+		}
+	case "on_change_poll":
 		changed := pollCheckChanged()
 		if !changed {
 			if folders, err := stmanager.Folders(); err == nil && !anyFolderReceives(folders) {
@@ -137,8 +148,6 @@ func OnTriggerAlarm() {
 		} else {
 			g.emitEvent("tick", "poll — changes detected")
 		}
-		OpenSyncSession()
-		return
 	}
 	OpenSyncSession()
 }
