@@ -47,6 +47,7 @@ LINUX_RUN = $(PODMAN) run --rm \
 .PHONY: help
 help:
 	@echo "WeSync build targets:"
+	@echo "  make test            Run backend (go test) + frontend (vitest) unit tests in Docker"
 	@echo "  make web             Build the React frontend (web/dist) — run once; all targets embed it"
 	@echo "  make linux-service   Backend service binary       -> dist/linux/wesync"
 	@echo "  make linux-gui       Wails desktop GUI (GTK/WebKit) -> dist/linux/wesync-app"
@@ -60,6 +61,20 @@ help:
 	@echo "  make all             ALL installables: web + flatpak + .deb/.rpm + Windows installer + APK"
 	@echo "  make clean           Remove dist/ artifacts"
 	@echo "  make clean-cache     Remove the cache volumes ($(GOBUILD_VOL), $(GOMOD_VOL), $(NODE_VOL))"
+
+# ── test ────────────────────────────────────────────────────────────────────
+# Runs BE and FE unit tests in the same containers used for building.
+# Skips the root and cmd/app packages which embed platform binaries (no tests
+# there anyway). E2E tests are excluded by vitest's own config (e2e/**).
+.PHONY: test
+test: image-linux
+	@echo "== backend tests (go test) =="
+	$(PODMAN) run --rm -v "$(ROOT):/src" $(GO_CACHE) \
+		$(IMAGE_LINUX) test
+	@echo "== frontend tests (vitest) =="
+	$(PODMAN) run --rm -w /src/web \
+		-v "$(ROOT):/src" -v $(NODE_VOL):/src/web/node_modules \
+		$(IMAGE_NODE) sh -c "npm ci && npm test"
 
 # ── web (frontend) ──────────────────────────────────────────────────────────
 # Built in a node container; node_modules lives in a named volume (off 9p) so

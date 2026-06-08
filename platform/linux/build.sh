@@ -186,6 +186,10 @@ build_pkg() {
 }
 
 case "$TARGET" in
+    test)
+        echo "[test] go test ./internal/... ./mobile/..."
+        go test ./internal/... ./mobile/...
+        ;;
     service) build_service ;;
     gui)     build_gui ;;
     windows) build_windows ;;
