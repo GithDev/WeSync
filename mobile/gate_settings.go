@@ -1,8 +1,8 @@
 package mobile
 
 import (
+	"fmt"
 	"log"
-	"strconv"
 	"time"
 
 	"wesync/internal/stmanager"
@@ -10,9 +10,9 @@ import (
 )
 
 // This file is where the gate touches the outside world for *settings*: it
-// reads PowerSettings from SQLite and pushes the on-change debounce into each
-// folder's ST fsWatcher. It also holds the one-shot folder-unpause migration
-// and the shared ST client helper. Keeping these side-effecting bits out of
+// reads PowerSettings from SQLite and resets each folder's ST fsWatcher delay
+// to the default. It also holds the one-shot folder-unpause migration and the
+// shared ST client helper. Keeping these side-effecting bits out of
 // gate_decision.go preserves that file's "pure, testable" property.
 
 func refreshSettingsFromDB() error {
@@ -33,14 +33,12 @@ func refreshSettingsFromDB() error {
 	// runtime PUT /api/power can be told apart from the startup load — if no
 	// "settings loaded" line appears when you change a setting, the
 	// notify→ACTION_REARM→RefreshPowerSettings chain isn't reaching the gate.
-	g.emitEvent("settings", "loaded: trigger="+settings.SyncTrigger+" net="+settings.NetworkMode)
+	g.emitEvent("settings", fmt.Sprintf("loaded: trigger=%s net=%s", settings.SyncTrigger, settings.NetworkMode))
 	// Run the file watcher only in on_change; tear it down in every other mode.
 	updateWatcher(settings.SyncTrigger == "on_change")
-	// Reset each folder's ST fsWatcher to its default. WeSync now owns the
-	// on_change debounce (the watcher waits OnChangeDebounceMinutes before
-	// opening a session); ST only runs inside a session and scans on start, so
-	// its own fsWatcher just needs the default — and we clear any long delay a
-	// previous on_change build pushed in.
+	// Reset each folder's ST fsWatcher to its default. ST only runs inside a
+	// session and scans on start, so its own fsWatcher just needs the default
+	// — this also clears any long delay a previous app version pushed in.
 	go applyFSWatcherDelay()
 	return nil
 }
@@ -56,10 +54,10 @@ func onFoldersChanged() {
 }
 
 // applyFSWatcherDelay resets each folder's ST fsWatcherDelayS to ST's default.
-// WeSync now owns the on_change debounce (in the file watcher), so ST's own
-// fsWatcher just runs at its default during a session — this also clears any
-// long delay a previous on_change build pushed in. Runs async so callers don't
-// block on N round-trips to ST.
+// Old app versions pushed OnChangeDebounceMinutes into this field to throttle
+// ST's own fsWatcher; WeSync now owns its own change coalescing, so ST's
+// fsWatcher just needs its default. Runs async so callers don't block on N
+// round-trips to ST.
 func applyFSWatcherDelay() {
 	delaySecs := 10
 	c, err := stClient()
@@ -80,9 +78,7 @@ func applyFSWatcherDelay() {
 		}
 		applied++
 	}
-	// Diagnostic: confirm in Recent activity that the debounce reached ST and
-	// over how many folders (0 = no folders yet, the fresh-install gap).
-	g.emitEvent("debounce", "fsWatcherDelay="+strconv.Itoa(delaySecs)+"s on "+strconv.Itoa(applied)+" folder(s)")
+	g.emitEvent("settings", fmt.Sprintf("reset ST fsWatcherDelay to %ds on %d folder(s)", delaySecs, applied))
 }
 
 // forceUnpauseAllFoldersOnce walks every folder and clears its paused flag

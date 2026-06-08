@@ -32,7 +32,9 @@ import (
 //
 // The trigger modes mostly don't appear in that decision: periodic/scheduled
 // just decide WHEN a session opens (AlarmManager → OpenSyncSession), while
-// on_change keeps ST resident and lets ST's own fsWatcher do the syncing.
+// on_change keeps the SERVICE resident (to host the file watcher) but lets
+// ST itself sleep between sessions — WeSync's own watcher opens a session
+// when a change settles, then ST wakes, syncs, and sleeps again.
 //
 // Session lifecycle
 // ─────────────────
@@ -204,9 +206,14 @@ func initGate(stExePath string) {
 	// against ST, and the catch-up's completion check sets/clears dirty from the
 	// real state. (refreshSettingsFromDB above already (re)started the watcher.)
 	g.mu.Lock()
-	onChange := g.settings.SyncTrigger == "on_change"
+	trigger := g.settings.SyncTrigger
 	g.mu.Unlock()
-	if onChange {
+	switch trigger {
+	case "on_change", "on_change_poll":
+		// on_change: watcher can't be trusted across process death — scan everything.
+		// on_change_poll: pollCheckChanged returns true on nil snapshot (cold start),
+		// but waiting for the next alarm could leave a gap of up to PeriodicMinutes.
+		// Open a session immediately so restarts don't silently delay sync.
 		g.emitEvent("trigger", "cold-start catch-up sync")
 		OpenSyncSession()
 	}

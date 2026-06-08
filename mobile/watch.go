@@ -23,11 +23,11 @@ import (
 // backstop tick, which sweeps up anything the watcher missed. A missed event
 // therefore delays a sync, it doesn't lose one.
 //
-// Debounce is a FIXED delay from the FIRST change, not a reset-on-every-event
-// window: once a change schedules a wake, further changes are ignored until it
-// fires. ST scans the whole tree when it wakes so it picks up the entire flurry
-// regardless — and a fixed delay can't be pushed indefinitely by continuous
-// edits the way a reset-debounce can, which matters for a sync tool.
+// Coalescing is FIRST-WINS with a fixed delay: the first change in an idle
+// period schedules a wake; further changes until it fires are dropped. ST scans
+// the whole tree when it wakes so it picks up the entire flurry regardless —
+// and a fixed delay can't be pushed out indefinitely by continuous edits the
+// way a reset-on-every-event debounce can, which matters for a sync tool.
 
 // changeBatcher coalesces a stream of change notifications into at most one
 // fire() per delay window, measured from the first change in an idle period.
