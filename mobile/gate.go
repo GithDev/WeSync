@@ -99,6 +99,14 @@ const (
 	foregroundGrace = 60 * time.Second
 )
 
+// SyncTrigger values — mirror store.PowerSettings.SyncTrigger.
+const (
+	triggerPeriodic     = "periodic"
+	triggerScheduled    = "scheduled"
+	triggerOnChange     = "on_change"
+	triggerOnChangePoll = "on_change_poll"
+)
+
 // PowerHost lets the gate push run-state up to the platform wrapper so it
 // can hold/release the radio (MulticastLock) and CPU (partial WakeLock)
 // for exactly as long as ST needs to run. One source of truth: the gate
@@ -209,7 +217,7 @@ func initGate(stExePath string) {
 	trigger := g.settings.SyncTrigger
 	g.mu.Unlock()
 	switch trigger {
-	case "on_change", "on_change_poll":
+	case triggerOnChange, triggerOnChangePoll:
 		// on_change: watcher can't be trusted across process death — scan everything.
 		// on_change_poll: pollCheckChanged returns true on nil snapshot (cold start),
 		// but waiting for the next alarm could leave a gap of up to PeriodicMinutes.

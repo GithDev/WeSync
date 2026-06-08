@@ -90,7 +90,7 @@ func updateWatcher(active bool) {
 // we're in on_change.
 func restartWatcherIfActive() {
 	g.mu.Lock()
-	onChange := g.settings.SyncTrigger == "on_change"
+	onChange := g.settings.SyncTrigger == triggerOnChange
 	g.mu.Unlock()
 	if !onChange {
 		return

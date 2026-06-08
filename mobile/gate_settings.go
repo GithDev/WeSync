@@ -35,7 +35,7 @@ func refreshSettingsFromDB() error {
 	// notify→ACTION_REARM→RefreshPowerSettings chain isn't reaching the gate.
 	g.emitEvent("settings", fmt.Sprintf("loaded: trigger=%s net=%s", settings.SyncTrigger, settings.NetworkMode))
 	// Run the file watcher only in on_change; tear it down in every other mode.
-	updateWatcher(settings.SyncTrigger == "on_change")
+	updateWatcher(settings.SyncTrigger == triggerOnChange)
 	// Reset each folder's ST fsWatcher to its default. ST only runs inside a
 	// session and scans on start, so its own fsWatcher just needs the default
 	// — this also clears any long delay a previous app version pushed in.

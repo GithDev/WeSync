@@ -150,7 +150,7 @@ func OnTriggerAlarm() {
 	}
 
 	switch trigger {
-	case "on_change":
+	case triggerOnChange:
 		// Backstop tick behind the live file watcher. Skip if nothing is pending
 		// locally and all folders are send-only — nothing to send or receive.
 		if !dirty {
@@ -159,7 +159,7 @@ func OnTriggerAlarm() {
 				return
 			}
 		}
-	case "on_change_poll":
+	case triggerOnChangePoll:
 		// Directory mtime snapshot catches structural changes (create/delete/rename)
 		// but not content-only edits — so we cannot use "no structural change" as a
 		// reason to skip syncing. Always open a session; the alarm interval is the
@@ -251,7 +251,7 @@ func ShouldStayResident() bool {
 	// session when the network returns). ST sleeps; only this lightweight process
 	// lingers. Without this the service would self-stop between syncs and the
 	// watcher would die with it.
-	if snap.settings.SyncTrigger == "on_change" {
+	if snap.settings.SyncTrigger == triggerOnChange {
 		return true
 	}
 	return snap.desiredRunning(time.Now())
