@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { useFolderDevices } from './useFolderDevices';
 import type { WeSyncFolder, Device } from '../api/client';
+import { FolderDirection } from '../types/enums';
 
 const ID_A = 'AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA';
 const ID_B = 'BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB';
@@ -21,7 +22,7 @@ function folder(overrides: Partial<WeSyncFolder> = {}): WeSyncFolder {
     id: 'folder-1',
     label: 'Photos',
     path: '/photos',
-    type: 'sendreceive',
+    type: FolderDirection.SendReceive,
     deviceIDs: [],
     ...overrides,
   };
@@ -70,9 +71,9 @@ describe('members', () => {
   });
 
   it('includes peerType from deviceTypes', () => {
-    const f = folder({ deviceIDs: [ID_B], deviceTypes: { [ID_B]: 'sendonly' } });
+    const f = folder({ deviceIDs: [ID_B], deviceTypes: { [ID_B]: FolderDirection.SendOnly } });
     const { members } = useFolderDevices(f, [device(ID_B, 'B')]);
-    expect(members[0].peerType).toBe('sendonly');
+    expect(members[0].peerType).toBe(FolderDirection.SendOnly);
   });
 });
 

@@ -1,20 +1,18 @@
 import { DirArrow } from '../../components/base/DirArrow/DirArrow';
-import type { Direction } from '../../components/base/DirArrow/DirArrow';
-
-export type { Direction } from '../../components/base/DirArrow/DirArrow';
+import { FolderDirection } from '../../types/enums';
 
 // All three directions — same for share and accept.
 // Both is first so it's the natural default.
-const OPTIONS: { value: Direction; label: string; desc: string }[] = [
-  { value: 'sendreceive', label: 'Two-way', desc: 'Files stay in sync on both sides.' },
-  { value: 'sendonly', label: 'Send only', desc: 'You send — nothing comes back.' },
-  { value: 'receiveonly', label: 'Receive only', desc: 'You receive — nothing is sent back.' },
+const OPTIONS: { value: FolderDirection; label: string; desc: string }[] = [
+  { value: FolderDirection.SendReceive, label: 'Two-way', desc: 'Files stay in sync on both sides.' },
+  { value: FolderDirection.SendOnly, label: 'Send only', desc: 'You send — nothing comes back.' },
+  { value: FolderDirection.ReceiveOnly, label: 'Receive only', desc: 'You receive — nothing is sent back.' },
 ];
 
 interface Props {
   mode?: 'share' | 'accept'; // kept for future specialisation, unused now
-  value: Direction;
-  onChange: (v: Direction) => void;
+  value: FolderDirection;
+  onChange: (v: FolderDirection) => void;
   /** compact = small pill row (for modals). Default = full cards (for settings). */
   compact?: boolean;
 }
@@ -87,17 +85,22 @@ export function DirectionPicker({ value, onChange, compact = false }: Props) {
   );
 }
 
-const SENDER_DISPLAY: Record<string, { arrow: string; title: string; desc: string }> = {
-  sendonly: {
+export const SENDER_DISPLAY: Record<FolderDirection, { arrow: string; title: string; desc: string }> = {
+  [FolderDirection.SendOnly]: {
     arrow: '→',
     title: '→ Receive files',
     desc: 'Files sync into your folder. Nothing is sent back.',
   },
-  sendreceive: { arrow: '↔', title: '↔ Two-way', desc: 'Files stay in sync on both sides.' },
+  [FolderDirection.SendReceive]: { arrow: '↔', title: '↔ Two-way', desc: 'Files stay in sync on both sides.' },
+  [FolderDirection.ReceiveOnly]: {
+    arrow: '→',
+    title: '→ Receive files',
+    desc: 'Files sync into your folder. Nothing is sent back.',
+  },
 };
 
 export function SenderDirectionDisplay({ senderType }: { senderType: string }) {
-  const info = SENDER_DISPLAY[senderType] ?? SENDER_DISPLAY.sendonly;
+  const info = SENDER_DISPLAY[senderType as FolderDirection] ?? SENDER_DISPLAY[FolderDirection.SendOnly];
   return (
     <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50">
       <span className="text-2xl font-bold text-blue-400 flex-shrink-0 leading-tight">

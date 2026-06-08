@@ -12,7 +12,7 @@ import { useToast } from '../../components/base/Toast/Toast';
 import { useConfirm } from '../../components/base/ConfirmDialog/ConfirmDialog';
 import { AsyncButton } from '../../components/base/Button/AsyncButton';
 import { DirArrow, dirLabel } from '../../components/base/DirArrow/DirArrow';
-import type { Direction } from '../../components/base/DirArrow/DirArrow';
+import { FolderDirection } from '../../types/enums';
 import { ListCard, ListRow, RowRemoveButton } from '../../components/base/ListRow/ListRow';
 import { Card } from '../../components/base/Card/Card';
 import { SectionHeading } from '../../components/base/SectionHeading/SectionHeading';
@@ -24,7 +24,7 @@ import { folderDeviceDisplay, folderStateToRowStatus } from '../../state/folder-
 import { deviceLabel } from '../../state/device-display';
 import { formatBytes } from '../../state/format';
 
-const ALL_DIRECTIONS: Direction[] = ['sendreceive', 'sendonly', 'receiveonly'];
+const ALL_DIRECTIONS: FolderDirection[] = [FolderDirection.SendReceive, FolderDirection.SendOnly, FolderDirection.ReceiveOnly];
 
 export function FolderPage() {
   const { id } = useParams<{ id: string }>();
@@ -76,7 +76,7 @@ export function FolderPage() {
     setConflicts((prev) => prev.filter((c) => c.path !== path));
   };
 
-  const handleChangeDirection = async (direction: string) => {
+  const handleChangeDirection = async (direction: FolderDirection) => {
     if (!id) return;
     await run(api.updateFolderDirection(id, direction), 'Could not update direction');
   };
@@ -173,6 +173,44 @@ export function FolderPage() {
         </div>
       </div>
 
+      {/* Conflicts */}
+      {conflicts.length > 0 && (
+        <Card tone="amber" className="px-5 py-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
+              {conflicts.length} conflict
+              {conflicts.length > 1 ? 's' : ''}
+            </h2>
+            <AsyncButton
+              unstyled
+              onClick={() =>
+                Promise.all(conflicts.map((c) => handleDeleteConflict(c.path))).then(() => {})
+              }
+              className="text-xs text-red-500 hover:text-red-700 font-medium"
+            >
+              Delete all
+            </AsyncButton>
+          </div>
+          <div className="flex flex-col divide-y divide-slate-100">
+            {conflicts.map((c) => (
+              <div key={c.path} className="flex items-start gap-3 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-mono text-slate-700 truncate">{c.path}</p>
+                  <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                    original:
+                    {c.originalPath}
+                  </p>
+                </div>
+                <RowRemoveButton
+                  onClick={() => handleDeleteConflict(c.path)}
+                  title="Delete conflict file"
+                />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Marker missing warning */}
       {syncStatus?.error?.includes('marker') && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-start gap-3">
@@ -199,7 +237,7 @@ export function FolderPage() {
       {/* Local changes on a receive-only folder — files this device has that the
           source doesn't. Awareness first; revert is the clearly-labelled,
           destructive escape hatch. */}
-      {folder.type === 'receiveonly' && syncStatus && localChanges > 0 && (
+      {folder.type === FolderDirection.ReceiveOnly && syncStatus && localChanges > 0 && (
         <Card tone="amber" className="px-5 py-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
@@ -412,44 +450,6 @@ export function FolderPage() {
           }}
         />
       </Card>
-
-      {/* Conflicts */}
-      {conflicts.length > 0 && (
-        <Card tone="amber" className="px-5 py-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
-              {conflicts.length} conflict
-              {conflicts.length > 1 ? 's' : ''}
-            </h2>
-            <AsyncButton
-              unstyled
-              onClick={() =>
-                Promise.all(conflicts.map((c) => handleDeleteConflict(c.path))).then(() => {})
-              }
-              className="text-xs text-red-500 hover:text-red-700 font-medium"
-            >
-              Delete all
-            </AsyncButton>
-          </div>
-          <div className="flex flex-col divide-y divide-slate-100">
-            {conflicts.map((c) => (
-              <div key={c.path} className="flex items-start gap-3 py-2.5">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-mono text-slate-700 truncate">{c.path}</p>
-                  <p className="text-[10px] text-slate-400 truncate mt-0.5">
-                    original:
-                    {c.originalPath}
-                  </p>
-                </div>
-                <RowRemoveButton
-                  onClick={() => handleDeleteConflict(c.path)}
-                  title="Delete conflict file"
-                />
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
 
       {/* Danger zone */}
       <Card tone="red" className="px-5 py-4">

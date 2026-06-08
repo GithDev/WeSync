@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { api, SyncTrigger, NetworkMode } from '../../api/client';
 import type { PowerEvent, PowerSettings, PowerStatus } from '../../api/client';
+import { fmtMinutes, whenSummary, describeStatus } from './PowerSection.logic';
 import { useToast } from '../../components/base/Toast/Toast';
 import { AsyncButton } from '../../components/base/Button/AsyncButton';
 import { Card } from '../../components/base/Card/Card';
@@ -20,11 +21,11 @@ import { isAndroid } from '../../platform';
 //      For users who want to verify the autonomous flow actually ran.
 
 const DEFAULTS: PowerSettings = {
-  syncTrigger: 'on_change',
+  syncTrigger: SyncTrigger.OnChange,
   periodicMinutes: 240,
   scheduledTimes: [],
   onChangeDebounceMinutes: 5,
-  networkMode: 'any_wifi',
+  networkMode: NetworkMode.AnyWifi,
   trustedSSIDs: [],
   pauseWhenBatteryLow: true,
   keepSyncingWhileCharging: false,
@@ -33,8 +34,6 @@ const DEFAULTS: PowerSettings = {
 
 const PERIODIC_OPTIONS = [15, 30, 60, 120, 240, 480];
 const DEBOUNCE_OPTIONS = [1, 2, 5, 10, 15, 30, 60];
-
-const fmtMinutes = (m: number): string => (m < 60 ? `${m} min` : `${m / 60} h`);
 
 // A minutes dropdown shared by the periodic-interval and on-change-debounce
 // pickers, so the option list and the "min/h" formatting (fmtMinutes) live in
@@ -66,19 +65,9 @@ function MinutesSelect({
   );
 }
 
-// One-line summaries shown on each collapsed SettingRow, so the current choice
-// reads at a glance without expanding. Each maps the same setting the row's
-// controls edit — single source of truth, no separate display state.
-function whenSummary(s: PowerSettings): string {
-  if (s.syncTrigger === 'scheduled')
-    return s.scheduledTimes.length ? s.scheduledTimes.join(', ') : 'No times set';
-  if (s.syncTrigger === 'on_change') return 'When something changes';
-  return `Every ${fmtMinutes(s.periodicMinutes)}`;
-}
-
 function whereSummary(s: PowerSettings): string {
-  if (s.networkMode === 'any') return 'Any network';
-  if (s.networkMode === 'trusted_wifi') return 'Only on selected WiFi';
+  if (s.networkMode === NetworkMode.Any) return 'Any network';
+  if (s.networkMode === NetworkMode.TrustedWifi) return 'Only on selected WiFi';
   return 'Only on WiFi';
 }
 
@@ -192,11 +181,11 @@ export function PowerSection() {
             value="periodic"
             label="Every so often"
             sublabel="Wake up at a regular interval and sync if anything changed."
-            checked={settings.syncTrigger === 'periodic'}
-            onChange={() => persist({ ...settings, syncTrigger: 'periodic' })}
+            checked={settings.syncTrigger === SyncTrigger.Periodic}
+            onChange={() => persist({ ...settings, syncTrigger: SyncTrigger.Periodic })}
             disabled={saving}
           />
-          {settings.syncTrigger === 'periodic' && (
+          {settings.syncTrigger === SyncTrigger.Periodic && (
             <div className="ml-7 flex items-center gap-2">
               <label className="text-xs text-slate-500">Every</label>
               <MinutesSelect
@@ -213,11 +202,11 @@ export function PowerSection() {
             value="scheduled"
             label="At specific times"
             sublabel="Sync at fixed times of day, like 02:00 every night."
-            checked={settings.syncTrigger === 'scheduled'}
-            onChange={() => persist({ ...settings, syncTrigger: 'scheduled' })}
+            checked={settings.syncTrigger === SyncTrigger.Scheduled}
+            onChange={() => persist({ ...settings, syncTrigger: SyncTrigger.Scheduled })}
             disabled={saving}
           />
-          {settings.syncTrigger === 'scheduled' && (
+          {settings.syncTrigger === SyncTrigger.Scheduled && (
             <ScheduledTimes
               times={settings.scheduledTimes}
               onChange={(times) => persist({ ...settings, scheduledTimes: times })}
@@ -229,11 +218,11 @@ export function PowerSection() {
             value="on_change"
             label="When something changes"
             sublabel="Wake and sync shortly after your files change, then sleep. Also checks in regularly to receive changes from your other devices."
-            checked={settings.syncTrigger === 'on_change'}
-            onChange={() => persist({ ...settings, syncTrigger: 'on_change' })}
+            checked={settings.syncTrigger === SyncTrigger.OnChange}
+            onChange={() => persist({ ...settings, syncTrigger: SyncTrigger.OnChange })}
             disabled={saving}
           />
-          {settings.syncTrigger === 'on_change' && (
+          {settings.syncTrigger === SyncTrigger.OnChange && (
             <div className="ml-7 flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500">Sync within</span>
@@ -275,8 +264,8 @@ export function PowerSection() {
             value="any"
             label="Any network"
             sublabel="WiFi or mobile data, whichever is available."
-            checked={settings.networkMode === 'any'}
-            onChange={() => persist({ ...settings, networkMode: 'any' })}
+            checked={settings.networkMode === NetworkMode.Any}
+            onChange={() => persist({ ...settings, networkMode: NetworkMode.Any })}
             disabled={saving}
           />
           <Radio
@@ -284,8 +273,8 @@ export function PowerSection() {
             value="any_wifi"
             label="Only on WiFi"
             sublabel="Skip mobile data, even if WiFi is unavailable."
-            checked={settings.networkMode === 'any_wifi'}
-            onChange={() => persist({ ...settings, networkMode: 'any_wifi' })}
+            checked={settings.networkMode === NetworkMode.AnyWifi}
+            onChange={() => persist({ ...settings, networkMode: NetworkMode.AnyWifi })}
             disabled={saving}
           />
           <Radio
@@ -293,14 +282,14 @@ export function PowerSection() {
             value="trusted_wifi"
             label="Only on selected WiFi"
             sublabel="Sync only on the networks you list below — e.g. home and work, but not guest or public WiFi."
-            checked={settings.networkMode === 'trusted_wifi'}
+            checked={settings.networkMode === NetworkMode.TrustedWifi}
             onChange={() => {
               requestLocationPermissionIfNeeded();
-              persist({ ...settings, networkMode: 'trusted_wifi' });
+              persist({ ...settings, networkMode: NetworkMode.TrustedWifi });
             }}
             disabled={saving}
           />
-          {settings.networkMode === 'trusted_wifi' && (
+          {settings.networkMode === NetworkMode.TrustedWifi && (
             <>
               {locState !== 'always' && locState !== 'unknown' && (
                 <LocationWarning
@@ -466,84 +455,6 @@ function NowPanel({
       </div>
     </Card>
   );
-}
-
-interface StatusLine {
-  good: boolean;
-  text: string;
-}
-
-function describeStatus(s: PowerStatus | null, settings: PowerSettings): StatusLine[] {
-  if (!s) return [];
-  const lines: StatusLine[] = [];
-
-  // Network — roaming or a metered WiFi is a hard stop in every mode. Ordinary
-  // metered cellular (normal mobile data) is not blocked, so don't flag it.
-  if (settings.blockMeteredRoaming && (s.roaming || (s.metered && s.activeWifi))) {
-    lines.push({ good: false, text: `On ${s.roaming ? 'roaming' : 'metered WiFi'} — paused` });
-  } else if (settings.networkMode === 'any') {
-    lines.push(
-      s.hasWifi || s.hasMobile
-        ? { good: true, text: `Connected${s.hasWifi ? ' (WiFi)' : ' (mobile data)'}` }
-        : { good: false, text: 'No network' },
-    );
-  } else if (settings.networkMode === 'any_wifi') {
-    lines.push(
-      s.hasWifi
-        ? { good: true, text: `On WiFi${s.currentSSID ? ` (${s.currentSSID})` : ''}` }
-        : { good: false, text: 'Not on WiFi — waiting' },
-    );
-  } else {
-    // trusted_wifi
-    if (!s.hasWifi) {
-      lines.push({ good: false, text: 'Not on WiFi — waiting' });
-    } else if (!s.currentSSID) {
-      lines.push({ good: false, text: 'WiFi name unknown (location permission missing?)' });
-    } else if (s.networkAllowed) {
-      lines.push({ good: true, text: `On a trusted WiFi (${s.currentSSID})` });
-    } else {
-      lines.push({ good: false, text: `On "${s.currentSSID}" — not in your trusted list` });
-    }
-  }
-
-  // Charging — when on, ST runs continuously regardless of the trigger.
-  if (settings.keepSyncingWhileCharging && s.charging) {
-    lines.push({ good: true, text: 'Charging — syncing continuously' });
-  }
-
-  // Low battery
-  if (settings.pauseWhenBatteryLow) {
-    lines.push(
-      s.batteryLow
-        ? { good: false, text: 'Battery low — sync paused' }
-        : { good: true, text: 'Battery OK' },
-    );
-  }
-
-  // Trigger / window
-  if (s.triggerWindowOpen) {
-    const secs = s.windowEndsInSecs ?? 0;
-    const remaining = secs > 60 ? `${Math.round(secs / 60)} min` : `${secs}s`;
-    lines.push({ good: true, text: `Syncing now — window open for ${remaining}` });
-  } else if (settings.syncTrigger === 'periodic') {
-    lines.push({ good: true, text: `Waiting — next sync within ~${settings.periodicMinutes} min` });
-  } else if (settings.syncTrigger === 'scheduled') {
-    if (settings.scheduledTimes.length === 0) {
-      lines.push({ good: false, text: 'No times set — sync will never run' });
-    } else {
-      lines.push({
-        good: true,
-        text: `Waiting for next scheduled time (${settings.scheduledTimes.join(', ')})`,
-      });
-    }
-  } else if (settings.syncTrigger === 'on_change') {
-    lines.push({
-      good: true,
-      text: `Watching for changes — also checking for incoming every ~${settings.periodicMinutes} min`,
-    });
-  }
-
-  return lines;
 }
 
 // Collapsed by default — most users don't need to look at this, but

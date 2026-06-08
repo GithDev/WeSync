@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { PendingFolder } from '../../api/client';
@@ -8,7 +8,7 @@ import { AsyncButton } from '../../components/base/Button/AsyncButton';
 import { SectionHeading } from '../../components/base/SectionHeading/SectionHeading';
 import { useApiToast } from '../../hooks/useApiToast';
 import { deviceMaps } from '../../state/device-display';
-import type { Direction } from '../DevicePage/DirectionPicker';
+import { FolderDirection } from '../../types/enums';
 import { FolderGroup } from './FolderGroup';
 import { IncomingFolder } from './IncomingFolder';
 import { ShareFolderModal } from './ShareFolderModal';
@@ -17,17 +17,35 @@ import { usePickFolder } from '../../hooks/usePickFolder';
 interface PendingShare {
   path: string;
   label: string;
-  direction: Direction;
+  direction: FolderDirection;
   deviceID?: string;
 }
 
 export function FoldersPage() {
   const { devices, folders, pendingFolders } = useWS();
   const run = useApiToast();
+  const [conflictCounts, setConflictCounts] = useState<Record<string, number>>({});
   const [pendingShare, setPendingShare] = useState<PendingShare | null>(null);
+
+  const folderIDs = folders.map((f) => f.id).join(',');
+  useEffect(() => {
+    if (!folderIDs) return;
+    let cancelled = false;
+    Promise.all(
+      folders.map((f) =>
+        api.getFolderConflicts(f.id)
+          .then((cs) => [f.id, cs.length] as const)
+          .catch(() => [f.id, 0] as const),
+      ),
+    ).then((entries) => {
+      if (!cancelled) setConflictCounts(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderIDs]);
   const [pendingAccept, setPendingAccept] = useState<PendingFolder | null>(null);
   const [acceptLabel, setAcceptLabel] = useState('');
-  const [acceptDirection, setAcceptDirection] = useState<Direction>('sendreceive');
+  const [acceptFolderDirection, setAcceptFolderDirection] = useState<FolderDirection>(FolderDirection.SendReceive);
   const { pick: nativePick, modal: pickerModal } = usePickFolder();
 
   const { nameMap, hostnameMap, connectedMap } = deviceMaps(devices);
@@ -40,7 +58,7 @@ export function FoldersPage() {
     setPendingShare({
       path,
       label: path.split(/[/\\]/).filter(Boolean).pop() ?? path,
-      direction: 'sendreceive',
+      direction: FolderDirection.SendReceive,
       deviceID,
     });
   };
@@ -102,7 +120,7 @@ export function FoldersPage() {
   // Opens the accept modal for new folders (path + ignores)
   const handleOpenAcceptModal = (pf: PendingFolder) => {
     setAcceptLabel(pf.label);
-    setAcceptDirection('sendreceive');
+    setAcceptFolderDirection(FolderDirection.SendReceive);
     setPendingAccept(pf);
   };
 
@@ -113,7 +131,7 @@ export function FoldersPage() {
   ) => {
     if (!pendingAccept || !acceptPath) return;
     await run(
-      api.acceptFolder(pendingAccept.folderID, pendingAccept.deviceID, acceptPath, acceptDirection),
+      api.acceptFolder(pendingAccept.folderID, pendingAccept.deviceID, acceptPath, acceptFolderDirection),
       'Could not accept folder',
     );
     // Rename if user changed the label
@@ -195,10 +213,10 @@ export function FoldersPage() {
             acceptMode
             label={acceptLabel}
             path=""
-            direction={acceptDirection}
+            direction={acceptFolderDirection}
             pairedDevices={[]}
             onChangeLabel={setAcceptLabel}
-            onChangeDirection={setAcceptDirection}
+            onChangeDirection={setAcceptFolderDirection}
             onConfirm={handleConfirmAccept}
             onCancel={() => setPendingAccept(null)}
             onPickPath={nativePick}
@@ -249,6 +267,7 @@ export function FoldersPage() {
           <FolderGroup
             key={folder.id}
             folder={folder}
+            conflictCount={conflictCounts[folder.id] ?? 0}
             onRemoveDevice={handleRemoveDevice}
             onAddDevice={handleAddDevice}
           />

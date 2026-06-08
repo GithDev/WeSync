@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { deriveNetwork } from './Discovery.logic';
 import type { NetworkInput } from './Discovery.logic';
+import { FolderDirection } from '../../types/enums';
 
 const ID_A = 'AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA';
 const ID_B = 'BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB';
@@ -18,7 +19,7 @@ const folder = (deviceIDs: string[]) => ({
   id: 'f1',
   label: 'Folder',
   path: '/foo',
-  type: 'sendreceive',
+  type: FolderDirection.SendReceive,
   deviceIDs,
 });
 

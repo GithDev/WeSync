@@ -3,7 +3,7 @@ import { BaseModal, ModalFooter } from '../../components/base/Modal/Modal';
 import { InlineEdit } from '../../components/base/InlineEdit/InlineEdit';
 import { DevicePill } from '../../components/base/DevicePill/DevicePill';
 import { DirectionPicker } from '../DevicePage/DirectionPicker';
-import type { Direction } from '../DevicePage/DirectionPicker';
+import { FolderDirection } from '../../types/enums';
 import { IgnorePatternsEditor } from '../../components/base/IgnorePatternsEditor/IgnorePatternsEditor';
 import { api } from '../../api/client';
 
@@ -17,10 +17,10 @@ interface Device {
 interface Props {
   label: string;
   path: string;
-  direction: Direction;
+  direction: FolderDirection;
   pairedDevices: Device[];
   onChangeLabel: (label: string) => void;
-  onChangeDirection: (direction: Direction) => void;
+  onChangeDirection: (direction: FolderDirection) => void;
   /** Share mode: (deviceIDs, patterns). Accept mode: also passes acceptPath. */
   onConfirm: (selectedDeviceIDs: string[], ignorePatterns: string[], acceptPath?: string) => void;
   onCancel: () => void;

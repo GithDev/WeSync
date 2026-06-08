@@ -1,12 +1,15 @@
+import { FolderDirection, SyncTrigger, NetworkMode } from '../types/enums';
+export { FolderDirection, SyncTrigger, NetworkMode };
+
 // Power-gate settings. Mirrors store.PowerSettings on the Go side. All
 // fields are present in every payload — defaults applied server-side
 // before persisting so the client never has to do partial-update logic.
 export interface PowerSettings {
-  syncTrigger: 'periodic' | 'scheduled' | 'on_change' | 'on_change_poll';
+  syncTrigger: SyncTrigger;
   periodicMinutes: number;
   scheduledTimes: string[];
   onChangeDebounceMinutes: number;
-  networkMode: 'any' | 'any_wifi' | 'trusted_wifi';
+  networkMode: NetworkMode;
   trustedSSIDs: string[];
   pauseWhenBatteryLow: boolean;
   keepSyncingWhileCharging: boolean;
@@ -136,9 +139,9 @@ export interface WeSyncFolder {
   id: string;
   label: string;
   path: string;
-  type: string; // sendonly | receiveonly | sendreceive
+  type: FolderDirection;
   deviceIDs: string[]; // ALL participants — trusted + others from ST/BEP
-  deviceTypes?: Record<string, string>; // deviceID → direction
+  deviceTypes?: Record<string, FolderDirection>; // deviceID → direction
   deviceAccepted?: Record<string, boolean>; // legacy bool — keep using for now; new code reads deviceState
   deviceTrusted?: Record<string, boolean>; // deviceID → explicitly paired (false = other device via mesh)
   // deviceState is the central per-device FolderRelationState string from
@@ -279,9 +282,9 @@ export const api = {
   getPowerStatus: () => get<PowerStatus>('/api/power/status'),
   powerSyncNow: () => post('/api/power/sync-now', {}),
   pickFolder: () => get<{ path: string }>('/api/folder/pick'),
-  shareFolder: (deviceID: string, path: string, label?: string, direction?: string) =>
+  shareFolder: (deviceID: string, path: string, label?: string, direction?: FolderDirection) =>
     post<{ folderID: string }>('/api/folder/share', { deviceID, path, label, direction }),
-  acceptFolder: (folderID: string, deviceID: string, path: string, direction?: string) =>
+  acceptFolder: (folderID: string, deviceID: string, path: string, direction?: FolderDirection) =>
     post('/api/folder/accept', { folderID, deviceID, path, direction }),
   declineFolder: (folderID: string, deviceID: string) =>
     post('/api/folder/decline', { folderID, deviceID }),
@@ -290,7 +293,7 @@ export const api = {
     del(
       `/api/folder/device?folderID=${encodeURIComponent(folderID)}&deviceID=${encodeURIComponent(deviceID)}`,
     ),
-  updateFolderDirection: (folderID: string, direction: string) =>
+  updateFolderDirection: (folderID: string, direction: FolderDirection) =>
     patch('/api/folder/direction', { folderID, direction }),
   getFolderStatus: (folderID: string) =>
     get<FolderStatus>(`/api/folder/status?id=${encodeURIComponent(folderID)}`),

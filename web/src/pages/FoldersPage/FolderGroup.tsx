@@ -12,11 +12,12 @@ import type { WeSyncFolder } from '../../api/client';
 
 interface Props {
   folder: WeSyncFolder;
+  conflictCount: number;
   onAddDevice: (folderID: string, deviceID: string) => void;
   onRemoveDevice: (folderID: string, deviceID: string) => void;
 }
 
-export function FolderGroup({ folder, onAddDevice, onRemoveDevice }: Props) {
+export function FolderGroup({ folder, conflictCount, onAddDevice, onRemoveDevice }: Props) {
   const { devices } = useWS();
   const { members, others, available } = useFolderDevices(folder, devices);
   // Remove is only safe with exactly one other participant — mesh (2+) uses Introducer
@@ -40,6 +41,11 @@ export function FolderGroup({ folder, onAddDevice, onRemoveDevice }: Props) {
               {folder.label}
             </Link>
             <span className="text-xs text-slate-400 flex-shrink-0">{dirLabel(folder.type)}</span>
+            {conflictCount > 0 && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 flex-shrink-0">
+                {conflictCount} conflict{conflictCount > 1 ? 's' : ''}
+              </span>
+            )}
           </div>
           <p className="text-xs font-mono text-slate-400 truncate">{folder.path}</p>
         </div>
