@@ -31,12 +31,15 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+
+      - name: Create mobile/webdist stub
+        # mobile/static.go embeds all:webdist; the real content is copied in
+        # by the android build step. Tests don't serve web content so a minimal
+        # stub is enough to satisfy the embed and let the package compile.
+        run: mkdir -p mobile/webdist && echo '<!doctype html>' > mobile/webdist/index.html
 
       - name: Backend tests
-        # Skip root package (embeds web/dist, no tests there) and cmd/app
-        # (embeds platform binaries). All testable logic lives under ./internal
-        # and ./mobile.
         run: go test ./internal/... ./mobile/...
 
       - name: Set up Node
