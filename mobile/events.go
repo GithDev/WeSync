@@ -138,15 +138,14 @@ func OnTriggerAlarm() {
 			}
 		}
 	case "on_change_poll":
-		changed := pollCheckChanged()
-		if !changed {
-			if folders, err := stmanager.Folders(); err == nil && !anyFolderReceives(folders) {
-				g.emitEvent("tick", "poll — no changes, all send-only; staying asleep")
-				return
-			}
-			g.emitEvent("tick", "poll — no local changes; opening session to receive from peers")
+		// Directory mtime snapshot catches structural changes (create/delete/rename)
+		// but not content-only edits — so we cannot use "no structural change" as a
+		// reason to skip syncing. Always open a session; the alarm interval is the
+		// throttle.
+		if pollCheckChanged() {
+			g.emitEvent("tick", "poll — structural changes detected")
 		} else {
-			g.emitEvent("tick", "poll — changes detected")
+			g.emitEvent("tick", "poll — no structural changes; syncing anyway")
 		}
 	}
 	OpenSyncSession()
