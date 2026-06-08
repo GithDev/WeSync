@@ -126,6 +126,14 @@ func startWatcher() {
 	w := &watcher{
 		ch: ch,
 		batcher: newChangeBatcher(delay, func() {
+			g.mu.Lock()
+			snap := g.snapshotLocked()
+			g.mu.Unlock()
+			chargingOverride := snap.charging && snap.settings.KeepSyncingWhileCharging
+			if !snap.networkAllowed() || (!snap.batteryAllowed() && !chargingOverride) {
+				g.emitEvent("watch", "file change settled — conditions not met, will sync when unblocked")
+				return
+			}
 			g.emitEvent("watch", "file change settled — opening sync session")
 			OpenSyncSession()
 		}),

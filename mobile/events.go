@@ -63,14 +63,36 @@ func OnNetworkState(ssid string, hasWifi bool, hasMobile bool, metered bool, roa
 		g.mu.Unlock()
 		return
 	}
+	wasAllowed := g.snapshotLocked().networkAllowed()
 	g.currentSSID = ssid
 	g.hasWifi = hasWifi
 	g.hasMobile = hasMobile
 	g.metered = metered
 	g.roaming = roaming
 	g.activeWifi = activeWifi
+	nowAllowed := g.snapshotLocked().networkAllowed()
 	g.mu.Unlock()
+
+	if hasWifi {
+		if ssid != "" {
+			g.emitEvent("net", "wifi — ssid="+ssid)
+		} else {
+			g.emitEvent("net", "wifi — ssid unknown (no location permission)")
+		}
+	} else if hasMobile {
+		g.emitEvent("net", "mobile only")
+	} else {
+		g.emitEvent("net", "no network")
+	}
+
 	g.requestReconcile()
+
+	// Network just became reachable — open a session immediately rather than
+	// waiting for the next scheduled alarm. Covers the "came home, want sync
+	// now" case for all trigger modes.
+	if !wasAllowed && nowAllowed {
+		OpenSyncSession()
+	}
 }
 
 // OnChargingState reports whether the device is plugged in. When charging and
