@@ -12,14 +12,14 @@ type Settings struct {
 	Visible bool `gorm:"not null;default:true"`
 
 	// Power settings — Android-only today (desktop runs ST continuously and
-	// ignores the gate). Default trigger is on_change with a 1 min debounce and
-	// a 4 h (240 min) backstop check to receive changes from other devices.
+	// ignores the gate). Default trigger is on_change_poll with a 4 h (240 min)
+	// alarm interval.
 	//
 	// Explicit `column:` tags are required because GORM's default
 	// snake_case naming splits the SSIDs acronym in surprising ways
 	// (it became power_trusted_s_s_i_ds). Pinning the names keeps the
 	// map-based UPDATE in store.go aligned with the actual schema.
-	PowerSyncTrigger     string `gorm:"column:power_sync_trigger;not null;default:'on_change'"`
+	PowerSyncTrigger     string `gorm:"column:power_sync_trigger;not null;default:'on_change_poll'"`
 	PowerPeriodicMinutes int    `gorm:"column:power_periodic_minutes;not null;default:240"`
 	PowerScheduledTimes  string `gorm:"column:power_scheduled_times;not null;default:'[]'"`
 	PowerNetworkMode     string `gorm:"column:power_network_mode;not null;default:'any_wifi'"`
@@ -29,10 +29,6 @@ type Settings struct {
 	// which is a different signal. The column name predates the rename; kept
 	// as-is to avoid a needless migration.
 	PowerPauseWhenBatteryLow bool `gorm:"column:power_pause_on_saver;not null;default:true"`
-	// Debounce delay for "on_change": pushed into each folder's ST fsWatcher
-	// (fsWatcherDelayS) so ST coalesces a flurry of edits into one sync after
-	// things settle, instead of syncing on every keystroke.
-	PowerOnChangeDebounceMinutes int `gorm:"column:power_on_change_debounce_minutes;not null;default:5"`
 
 	// When charging, run ST continuously regardless of the trigger/battery
 	// gate — battery isn't a concern when plugged in. Still respects the

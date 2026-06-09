@@ -141,11 +141,11 @@ class MainActivity : Activity() {
             backendStarted = true
             // The foreground service may have been created BEFORE
             // permission was granted (and thus skipped Mobile.start in
-            // its onCreate). Send a no-op intent so its onStartCommand
-            // re-runs startBackendIfReady now that the permission is
-            // actually in place. Mobile.start is idempotent.
+            // its onCreate). Kick it with a named action so its
+            // onStartCommand re-runs startBackendIfReady now that the
+            // permission is actually in place. Mobile.start is idempotent.
             try {
-                startService(Intent(this, WeSyncService::class.java))
+                startService(Intent(this, WeSyncService::class.java).setAction(WeSyncService.ACTION_START_BACKEND))
             } catch (_: Throwable) {
             }
             // Quietly nudge optional permissions while we're booting —

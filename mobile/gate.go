@@ -31,10 +31,8 @@ import (
 //	    || (session open && networkAllowed && battery)  // a trigger asked us to sync
 //
 // The trigger modes mostly don't appear in that decision: periodic/scheduled
-// just decide WHEN a session opens (AlarmManager → OpenSyncSession), while
-// on_change keeps the SERVICE resident (to host the file watcher) but lets
-// ST itself sleep between sessions — WeSync's own watcher opens a session
-// when a change settles, then ST wakes, syncs, and sleeps again.
+// and on_change_poll all decide WHEN a session opens (AlarmManager /
+// OnNetworkState → OpenSyncSession); ST then wakes, syncs, and sleeps.
 //
 // Session lifecycle
 // ─────────────────
@@ -103,7 +101,6 @@ const (
 const (
 	triggerPeriodic     = "periodic"
 	triggerScheduled    = "scheduled"
-	triggerOnChange     = "on_change"
 	triggerOnChangePoll = "on_change_poll"
 )
 
@@ -113,13 +110,6 @@ const (
 // decides, the host reacts. Implemented in Kotlin by WeSyncService.
 type PowerHost interface {
 	OnSyncActive(active bool)
-	// OnWatcherActive is called when the on_change file watcher starts or
-	// stops. The host must hold a PARTIAL_WAKE_LOCK for exactly as long as
-	// the watcher is active — without it the Go runtime freezes under doze
-	// and inotify events are never delivered to the consume() goroutine.
-	// This lock is independent of OnSyncActive: it is held even while ST
-	// sleeps between syncs, which is the whole point of on_change mode.
-	OnWatcherActive(active bool)
 }
 
 type gate struct {
@@ -161,27 +151,12 @@ type gate struct {
 	// value means no grace pending.
 	foregroundUntil time.Time
 
-	// dirty: we have local changes not yet confirmed pushed to every peer. The
-	// on_change file watcher SETS it (best-effort, while ST sleeps); the reconcile
-	// loop RECONCILES it to ST's authoritative completion once ST is awake and
-	// idle. It drives the on_change backstop tick — an all-sendonly device with
-	// dirty==false has nothing to push and nothing to receive, so the tick lets
-	// it keep sleeping. In-memory only: every cold start re-derives the truth via
-	// a catch-up session, so there's nothing to persist or trust across restarts.
-	dirty bool
-	// dirtyGen counts watcher-observed changes. reconcileDirty snapshots it before
-	// its off-lock probe of ST and only clears dirty if it's unchanged afterward —
-	// so a file change that lands mid-probe isn't clobbered by a stale "all caught
-	// up" result (the lost-update the dirty flag must not have).
-	dirtyGen uint64
-
 	// Reconcile machinery. kick is a buffered "something changed, re-
 	// evaluate" signal; the loop owns all start/stop of ST.
 	kick chan struct{}
 
-	host              PowerHost
-	lastSyncActive    bool // dedupe host notifications
-	lastWatcherActive bool // dedupe watcher-lock notifications
+	host           PowerHost
+	lastSyncActive bool // dedupe host notifications
 }
 
 var g = &gate{}
@@ -208,23 +183,6 @@ func initGate(stExePath string) {
 		log.Printf("gate: initial settings load: %v", err)
 	}
 	g.emitEvent("start", "gate initialized; ST running")
-	// Cold-start catch-up: in on_change, open one session so ST scans + syncs
-	// everything that changed while we were down. This is what lets us NOT trust
-	// the file watcher across process death — every restart fully reconciles
-	// against ST, and the catch-up's completion check sets/clears dirty from the
-	// real state. (refreshSettingsFromDB above already (re)started the watcher.)
-	g.mu.Lock()
-	trigger := g.settings.SyncTrigger
-	g.mu.Unlock()
-	switch trigger {
-	case triggerOnChange, triggerOnChangePoll:
-		// on_change: watcher can't be trusted across process death — scan everything.
-		// on_change_poll: pollCheckChanged returns true on nil snapshot (cold start),
-		// but waiting for the next alarm could leave a gap of up to PeriodicMinutes.
-		// Open a session immediately so restarts don't silently delay sync.
-		g.emitEvent("trigger", "cold-start catch-up sync")
-		OpenSyncSession()
-	}
 	// mobile.Start has already started ST; reconcile so the loop's view
 	// of the world matches reality (and stops ST again if no session is
 	// open and we're in the background).
@@ -248,7 +206,6 @@ func (g *gate) markStopped() {
 	g.stallPolls = 0
 	g.lastTransferBytes = 0
 	g.mu.Unlock()
-	stopWatcher()        // tear down the on_change file watcher + its inotify handles (also calls notifyWatcherHost(false))
 	g.requestReconcile() // let the loop stop its poll ticker
 	g.notifyHost(false)  // release the radio/CPU locks on the host
 }

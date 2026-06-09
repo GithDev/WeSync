@@ -73,15 +73,9 @@ func (s snapshot) desiredRunning(now time.Time) bool {
 	if !s.batteryAllowed() {
 		return false
 	}
-	// Every trigger mode now gates ST on an open session — ST is the heavy part
-	// (scan/hash/network), so it sleeps between sessions. periodic/scheduled open
-	// a session on their alarm; on_change opens one when the lightweight file
-	// watcher sees a change (and on the backstop tick / cold start). Only the
-	// watcher stays resident in on_change to notice changes.
-	//
-	// (on_change USED to return true here — keep ST resident and let its own
-	// fsWatcher sync — which is exactly why it never slept. We moved detection
-	// into WeSync's own watcher so ST can sleep; see watch.go.)
+	// Every trigger mode gates ST on an open session — ST is the heavy part
+	// (scan/hash/network), so it sleeps between sessions. periodic/scheduled and
+	// on_change_poll all open a session on their alarm; ST wakes, syncs, and sleeps.
 	return s.sessionOpen(now)
 }
 

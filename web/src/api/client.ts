@@ -8,7 +8,6 @@ export interface PowerSettings {
   syncTrigger: SyncTrigger;
   periodicMinutes: number;
   scheduledTimes: string[];
-  onChangeDebounceMinutes: number;
   networkMode: NetworkMode;
   trustedSSIDs: string[];
   pauseWhenBatteryLow: boolean;

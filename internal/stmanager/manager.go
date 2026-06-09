@@ -414,9 +414,9 @@ type STFolder struct {
 }
 
 // Folders reads the folder set straight from Syncthing's config.xml. It works
-// while ST is stopped — that's the whole point: the on_change watcher must know
-// which paths to watch without the REST API being up. config.xml is ST's own
-// source of truth, so we read it where it lives rather than caching a copy.
+// while ST is stopped — the poll snapshot scan needs folder paths without the
+// REST API being up. config.xml is ST's own source of truth, so we read it
+// where it lives rather than caching a copy.
 func Folders() ([]STFolder, error) {
 	return readFolders(filepath.Join(home(), "config.xml"))
 }

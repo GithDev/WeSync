@@ -12,10 +12,9 @@ func TestPowerSettings_Defaults(t *testing.T) {
 		t.Fatalf("GetPowerSettings: %v", err)
 	}
 	want := PowerSettings{
-		SyncTrigger:              "on_change",
+		SyncTrigger:              "on_change_poll",
 		PeriodicMinutes:          240,
 		ScheduledTimes:           []string{},
-		OnChangeDebounceMinutes:  5,
 		NetworkMode:              "any_wifi",
 		TrustedSSIDs:             []string{},
 		PauseWhenBatteryLow:      true,
@@ -30,13 +29,12 @@ func TestPowerSettings_Defaults(t *testing.T) {
 func TestPowerSettings_RoundTripTrustedWifiEmpty(t *testing.T) {
 	s := openTest(t)
 	in := PowerSettings{
-		SyncTrigger:             "periodic",
-		PeriodicMinutes:         120,
-		ScheduledTimes:          []string{},
-		OnChangeDebounceMinutes: 5,
-		NetworkMode:             "trusted_wifi",
-		TrustedSSIDs:            []string{},
-		PauseWhenBatteryLow:     false,
+		SyncTrigger:         "periodic",
+		PeriodicMinutes:     120,
+		ScheduledTimes:      []string{},
+		NetworkMode:         "trusted_wifi",
+		TrustedSSIDs:        []string{},
+		PauseWhenBatteryLow: false,
 	}
 	if err := s.SetPowerSettings(in); err != nil {
 		t.Fatalf("SetPowerSettings: %v", err)
@@ -53,13 +51,12 @@ func TestPowerSettings_RoundTripTrustedWifiEmpty(t *testing.T) {
 func TestPowerSettings_RoundTripTrustedWifiWithSSIDs(t *testing.T) {
 	s := openTest(t)
 	in := PowerSettings{
-		SyncTrigger:             "on_change",
-		PeriodicMinutes:         60,
-		ScheduledTimes:          []string{"02:00", "14:30"},
-		OnChangeDebounceMinutes: 10,
-		NetworkMode:             "trusted_wifi",
-		TrustedSSIDs:            []string{"Home", "Office WiFi"},
-		PauseWhenBatteryLow:     true,
+		SyncTrigger:         "on_change_poll",
+		PeriodicMinutes:     60,
+		ScheduledTimes:      []string{"02:00", "14:30"},
+		NetworkMode:         "trusted_wifi",
+		TrustedSSIDs:        []string{"Home", "Office WiFi"},
+		PauseWhenBatteryLow: true,
 	}
 	if err := s.SetPowerSettings(in); err != nil {
 		t.Fatalf("SetPowerSettings: %v", err)
@@ -76,13 +73,12 @@ func TestPowerSettings_RoundTripTrustedWifiWithSSIDs(t *testing.T) {
 func TestPowerSettings_RoundTripScheduledTimes(t *testing.T) {
 	s := openTest(t)
 	in := PowerSettings{
-		SyncTrigger:             "scheduled",
-		PeriodicMinutes:         120,
-		ScheduledTimes:          []string{"00:00", "06:00", "12:00", "18:00"},
-		OnChangeDebounceMinutes: 5,
-		NetworkMode:             "any",
-		TrustedSSIDs:            []string{},
-		PauseWhenBatteryLow:     false,
+		SyncTrigger:         "scheduled",
+		PeriodicMinutes:     120,
+		ScheduledTimes:      []string{"00:00", "06:00", "12:00", "18:00"},
+		NetworkMode:         "any",
+		TrustedSSIDs:        []string{},
+		PauseWhenBatteryLow: false,
 	}
 	if err := s.SetPowerSettings(in); err != nil {
 		t.Fatalf("SetPowerSettings: %v", err)

@@ -5,10 +5,9 @@ import { SyncTrigger, NetworkMode } from '../../types/enums';
 
 function makeSettings(over: Partial<PowerSettings> = {}): PowerSettings {
   return {
-    syncTrigger: SyncTrigger.OnChange,
+    syncTrigger: SyncTrigger.OnChangePoll,
     periodicMinutes: 240,
     scheduledTimes: [],
-    onChangeDebounceMinutes: 5,
     networkMode: NetworkMode.AnyWifi,
     trustedSSIDs: [],
     pauseWhenBatteryLow: true,
@@ -59,13 +58,7 @@ describe('whenSummary', () => {
     );
   });
 
-  it('on_change returns change string', () => {
-    expect(whenSummary(makeSettings({ syncTrigger: SyncTrigger.OnChange }))).toBe(
-      'When something changes',
-    );
-  });
-
-  it('on_change_poll returns same change string — not "Every N h"', () => {
+  it('on_change_poll returns change string — not "Every N h"', () => {
     expect(
       whenSummary(makeSettings({ syncTrigger: SyncTrigger.OnChangePoll, periodicMinutes: 240 })),
     ).toBe('When something changes');
@@ -77,12 +70,7 @@ describe('describeStatus — trigger lines', () => {
     expect(describeStatus(null, makeSettings())).toEqual([]);
   });
 
-  it('on_change emits watching-for-changes line', () => {
-    const lines = describeStatus(makeStatus(), makeSettings({ syncTrigger: SyncTrigger.OnChange }));
-    expect(lines.some((l) => l.good && l.text.includes('Watching for changes'))).toBe(true);
-  });
-
-  it('on_change_poll emits watching-for-changes line — not silent', () => {
+  it('on_change_poll emits watching-for-changes line', () => {
     const lines = describeStatus(makeStatus(), makeSettings({ syncTrigger: SyncTrigger.OnChangePoll }));
     expect(lines.some((l) => l.good && l.text.includes('Watching for changes'))).toBe(true);
   });
@@ -114,7 +102,7 @@ describe('describeStatus — trigger lines', () => {
   it('window open takes priority over trigger type', () => {
     const lines = describeStatus(
       makeStatus({ triggerWindowOpen: true, windowEndsInSecs: 90 }),
-      makeSettings({ syncTrigger: SyncTrigger.OnChange }),
+      makeSettings({ syncTrigger: SyncTrigger.OnChangePoll }),
     );
     expect(lines.some((l) => l.good && l.text.includes('Syncing now'))).toBe(true);
   });

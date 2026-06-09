@@ -34,8 +34,6 @@ func refreshSettingsFromDB() error {
 	// "settings loaded" line appears when you change a setting, the
 	// notify→ACTION_REARM→RefreshPowerSettings chain isn't reaching the gate.
 	g.emitEvent("settings", fmt.Sprintf("loaded: trigger=%s net=%s", settings.SyncTrigger, settings.NetworkMode))
-	// Run the file watcher only in on_change; tear it down in every other mode.
-	updateWatcher(settings.SyncTrigger == triggerOnChange)
 	// Reset each folder's ST fsWatcher to its default. ST only runs inside a
 	// session and scans on start, so its own fsWatcher just needs the default
 	// — this also clears any long delay a previous app version pushed in.
@@ -44,20 +42,16 @@ func refreshSettingsFromDB() error {
 }
 
 // onFoldersChanged reacts to the folder set changing (registered as
-// api.FoldersChangedHook): re-arm the file watcher so a newly added/accepted
-// folder is watched at once (otherwise it wouldn't be until an app restart),
-// and reset its ST fsWatcher delay to the default.
+// api.FoldersChangedHook): reset the poll snapshot so the next on_change_poll
+// alarm treats the new folder as a fresh start, and reset its ST fsWatcher delay.
 func onFoldersChanged() {
-	restartWatcherIfActive()
 	resetPollSnapshot()
 	go applyFSWatcherDelay()
 }
 
 // applyFSWatcherDelay resets each folder's ST fsWatcherDelayS to ST's default.
-// Old app versions pushed OnChangeDebounceMinutes into this field to throttle
-// ST's own fsWatcher; WeSync now owns its own change coalescing, so ST's
-// fsWatcher just needs its default. Runs async so callers don't block on N
-// round-trips to ST.
+// Old app versions pushed a custom delay into this field; ST's default is the
+// right value now. Runs async so callers don't block on N round-trips to ST.
 func applyFSWatcherDelay() {
 	delaySecs := 10
 	c, err := stClient()

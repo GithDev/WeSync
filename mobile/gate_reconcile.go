@@ -96,14 +96,6 @@ func (g *gate) reconcileOnce(poll bool) {
 		}
 		g.sessionEndsAt = nextSessionEnd(time.Now(), g.sessionStartedAt, g.sessionEndsAt, busy, pr.connected)
 		g.mu.Unlock()
-		// Not busy → ST has settled (or the pull stalled), so its completion view is
-		// authoritative: reconcile the dirty flag to the real state — clear it when
-		// every peer is caught up, keep it when one is still behind (e.g. offline or
-		// a stalled pull). This is what eventually lets an all-send-only device stop
-		// ticking and sleep — and what keeps it ticking until the data lands.
-		if !busy {
-			reconcileDirty()
-		}
 		g.mu.Lock()
 		snap = g.snapshotLocked()
 		g.mu.Unlock()
@@ -145,59 +137,6 @@ func (g *gate) notifyHost(active bool) {
 		defer func() { _ = recover() }() // never let a misbehaving host crash the gate
 		h.OnSyncActive(active)
 	}()
-}
-
-// notifyWatcherHost pushes watcher on/off edges to the platform wrapper so it
-// can hold/release the watcher WakeLock. Deduped on transitions like notifyHost.
-func (g *gate) notifyWatcherHost(active bool) {
-	g.mu.Lock()
-	h := g.host
-	changed := g.lastWatcherActive != active
-	g.lastWatcherActive = active
-	g.mu.Unlock()
-	if h == nil || !changed {
-		return
-	}
-	func() {
-		defer func() { _ = recover() }()
-		h.OnWatcherActive(active)
-	}()
-}
-
-// reconcileDirty asks ST whether every accepted peer is caught up with us and
-// sets the gate's dirty flag to match. Called while a session is open and ST has
-// gone idle — at that point ST's completion view is authoritative, so this both
-// clears dirty (everyone synced) and re-asserts it (a peer is still behind),
-// overriding the watcher's best-effort guess with the real state. On error it
-// leaves dirty as-is (a transient hiccup shouldn't drop a pending backup).
-func reconcileDirty() {
-	c, err := stClient()
-	if err != nil {
-		return
-	}
-	// Snapshot the change generation BEFORE the off-lock probe so we can tell
-	// whether the watcher saw a new local change while we were asking ST.
-	g.mu.Lock()
-	gen := g.dirtyGen
-	g.mu.Unlock()
-
-	behind, err := c.AnyPeerBehind()
-	if err != nil {
-		return
-	}
-
-	g.mu.Lock()
-	switch {
-	case behind:
-		g.dirty = true // a peer is still behind — definitely dirty
-	case g.dirtyGen == gen:
-		g.dirty = false // ST says everyone is caught up and nothing changed mid-probe
-	default:
-		// A watcher event bumped the generation while we probed; its change isn't
-		// reflected in the completion we just read, so keep dirty set — the next
-		// reconcile re-checks against fresh ST state.
-	}
-	g.mu.Unlock()
 }
 
 // probeResult is one poll's view of ST, split into the signals the keepalive

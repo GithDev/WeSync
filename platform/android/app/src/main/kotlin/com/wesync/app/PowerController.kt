@@ -31,8 +31,7 @@ import java.util.concurrent.TimeUnit
 //      onChargingState).
 //   3. Read the wake plan and arm AlarmManager, whose fire calls
 //      Mobile.onTriggerAlarm(). periodic/scheduled fire at their interval/times;
-//      on_change arms the same alarm as a BACKSTOP tick behind its live file
-//      watcher (the gate decides whether that tick actually syncs).
+//      on_change_poll uses the same alarm (snapshot diff at each fire).
 //
 // We never interpret the trigger mode's meaning ourselves — that logic
 // lives in exactly one place, the Go gate. One instance per Service
@@ -465,15 +464,11 @@ class PowerController(private val ctx: Context) {
     private fun rearmAlarms(p: WakePlan) {
         cancelAlarms()
         when (p.mode) {
-            "periodic", "on_change", "on_change_poll" -> {
-                // periodic: only trigger. on_change: backstop tick behind the live
-                // file watcher. on_change_poll: the primary trigger (snapshot diff
-                // at each alarm replaces the continuous watcher).
-                // All three use the same doze-friendly self-rearming alarm
+            "periodic", "on_change_poll" -> {
+                // Both use the same doze-friendly self-rearming alarm
                 // (setAndAllowWhileIdle + RTC_WAKEUP; plain setInexactRepeating
                 // never fires during doze). The gate (Mobile.onTriggerAlarm)
-                // decides whether the on_change tick actually opens a session, so
-                // an all-send-only device with nothing pending stays asleep.
+                // handles all trigger-specific logic.
                 val ms = TimeUnit.MINUTES.toMillis(p.periodicMinutes.coerceAtLeast(1).toLong())
                 val fireAt = System.currentTimeMillis() + ms
                 alarmManager.setAndAllowWhileIdle(

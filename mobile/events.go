@@ -89,9 +89,16 @@ func OnNetworkState(ssid string, hasWifi bool, hasMobile bool, metered bool, roa
 
 	// Network just became reachable — open a session immediately rather than
 	// waiting for the next scheduled alarm. Covers the "came home, want sync
-	// now" case for all trigger modes.
+	// now" case for all trigger modes. Guard against rapid reconnects (e.g.
+	// mesh AP handoffs) that would otherwise reset sessionEndsAt on every
+	// transition and keep ST running indefinitely without a real sync trigger.
 	if !wasAllowed && nowAllowed {
-		OpenSyncSession()
+		g.mu.Lock()
+		sessionActive := time.Now().Before(g.sessionEndsAt)
+		g.mu.Unlock()
+		if !sessionActive {
+			OpenSyncSession()
+		}
 	}
 }
 
@@ -127,16 +134,11 @@ func OnBatteryLow(low bool) {
 // Power conditions are checked first — no point doing any work if ST can't run.
 // Then trigger-specific logic decides whether to open a sync session:
 //   - periodic/scheduled: always open one.
-//   - on_change: backstop tick — skip if nothing local is pending and all folders
-//     are send-only (nothing to receive either).
 //   - on_change_poll: primary trigger — compare directory mtimes; open a session
-//     only when a structural change was detected or a folder can receive. Leaving
-//     the snapshot stale while conditions aren't met means changes accumulate and
-//     are caught the moment conditions clear.
+//     always (poll is just for logging). The alarm interval is the throttle.
 func OnTriggerAlarm() {
 	g.mu.Lock()
 	trigger := g.settings.SyncTrigger
-	dirty := g.dirty
 	snap := g.snapshotLocked()
 	g.mu.Unlock()
 
@@ -149,21 +151,7 @@ func OnTriggerAlarm() {
 		return
 	}
 
-	switch trigger {
-	case triggerOnChange:
-		// Backstop tick behind the live file watcher. Skip if nothing is pending
-		// locally and all folders are send-only — nothing to send or receive.
-		if !dirty {
-			if folders, err := stmanager.Folders(); err == nil && !anyFolderReceives(folders) {
-				g.emitEvent("tick", "backstop — nothing pending, all send-only; staying asleep")
-				return
-			}
-		}
-	case triggerOnChangePoll:
-		// Directory mtime snapshot catches structural changes (create/delete/rename)
-		// but not content-only edits — so we cannot use "no structural change" as a
-		// reason to skip syncing. Always open a session; the alarm interval is the
-		// throttle.
+	if trigger == triggerOnChangePoll {
 		if pollCheckChanged() {
 			g.emitEvent("tick", "poll — structural changes detected")
 		} else {
@@ -173,36 +161,10 @@ func OnTriggerAlarm() {
 	OpenSyncSession()
 }
 
-// anyFolderReceives reports whether any folder can pull from peers (is not
-// sendonly). A device whose folders are all sendonly has nothing to receive, so
-// a backstop tick only matters when it has unsent local changes. Empty type is
-// ST's default (sendreceive) ⇒ counts as receiving, the safe side.
-func anyFolderReceives(folders []stmanager.STFolder) bool {
-	for _, f := range folders {
-		if f.Type != "sendonly" {
-			return true
-		}
-	}
-	return false
-}
-
-// markDirty records that the file watcher saw a local change — we (probably)
-// now have unsynced local state. It's a best-effort proxy set while ST sleeps;
-// the reconcile loop overwrites it with ST's authoritative completion once ST
-// is awake and idle. Kept set until then so the backstop tick keeps retrying
-// (e.g. a change made while the only peer was offline).
-func markDirty() {
-	g.mu.Lock()
-	g.dirty = true
-	g.dirtyGen++ // lets reconcileDirty detect a change that lands during its probe
-	g.mu.Unlock()
-}
-
 // OpenSyncSession opens a sync session: ST is allowed to run (subject to the
-// network/battery gates) until it reports the sync complete. Called by the
-// on_change file watcher on a settled change, by OnTriggerAlarm (periodic /
-// scheduled / on_change backstop), on cold-start catch-up, and by the manual
-// "Sync now" button. Replaces the old OnTriggerTick / SyncNow pair.
+// network/battery gates) until it reports the sync complete. Called by
+// OnTriggerAlarm (periodic / scheduled / on_change_poll) and by the manual
+// "Sync now" button.
 func OpenSyncSession() {
 	g.emitEvent("trigger", "session opened — starting sync")
 	g.mu.Lock()
@@ -222,10 +184,10 @@ func OpenSyncSession() {
 }
 
 // ShouldStayResident reports whether the gate currently needs the bundled
-// Syncthing running for a background reason — an open sync session, on_change's
-// resident watch, or "keep syncing while charging" — all subject to the same
-// network/battery gates ST itself obeys. The Android service polls this to
-// decide whether to self-stop after the user leaves.
+// Syncthing running for a background reason — an open sync session or "keep
+// syncing while charging" — subject to the same network/battery gates ST
+// itself obeys. The Android service polls this to decide whether to self-stop
+// after the user leaves.
 //
 // This is the SINGLE source of truth for "must the process stay alive?": it is
 // literally the gate's own desiredRunning decision, so the service can never
@@ -246,14 +208,6 @@ func ShouldStayResident() bool {
 	// defeat onTaskRemoved's self-stop backstop.
 	snap.appForeground = false
 	snap.foregroundUntil = time.Time{}
-	// on_change keeps us alive to host the file watcher even when ST itself is
-	// asleep: the watcher must stay resident to notice changes (and to re-open a
-	// session when the network returns). ST sleeps; only this lightweight process
-	// lingers. Without this the service would self-stop between syncs and the
-	// watcher would die with it.
-	if snap.settings.SyncTrigger == triggerOnChange {
-		return true
-	}
 	return snap.desiredRunning(time.Now())
 }
 
@@ -263,18 +217,13 @@ func SetPowerHost(h PowerHost) {
 	g.mu.Lock()
 	g.host = h
 	lastSync := g.lastSyncActive
-	lastWatcher := g.lastWatcherActive
 	g.mu.Unlock()
 	// Re-assert current state so a freshly-registered host isn't left
-	// out of sync with a session or watcher that's already running.
+	// out of sync with a session that's already running.
 	if h != nil {
 		func() {
 			defer func() { _ = recover() }()
 			h.OnSyncActive(lastSync)
-		}()
-		func() {
-			defer func() { _ = recover() }()
-			h.OnWatcherActive(lastWatcher)
 		}()
 	}
 }
@@ -294,16 +243,9 @@ func RefreshPowerSettings() {
 // owns the interpretation of the trigger mode; Android is a dumb executor that
 // arms whatever this returns:
 //
-//	{ "mode": "periodic|scheduled|on_change",
+//	{ "mode": "periodic|scheduled|on_change_poll",
 //	  "periodicMinutes": 120,
 //	  "scheduledTimes": ["07:00","19:00"] }
-//
-// on_change uses periodicMinutes too — as the periodic check-in (Android arms
-// the same periodic alarm). The live file watcher is the low-latency path for
-// SENDING local changes; the check-in is mainly how we RECEIVE changes from
-// peers — and it also retries an offline peer's backup and catches anything the
-// watcher missed. OnTriggerAlarm gates whether it actually opens a session
-// (skipped when all folders are send-only and nothing local is pending).
 func WakePlanJSON() string {
 	g.mu.Lock()
 	s := g.settings

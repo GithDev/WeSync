@@ -6,8 +6,7 @@ export const fmtMinutes = (m: number): string => (m < 60 ? `${m} min` : `${m / 6
 export function whenSummary(s: PowerSettings): string {
   if (s.syncTrigger === SyncTrigger.Scheduled)
     return s.scheduledTimes.length ? s.scheduledTimes.join(', ') : 'No times set';
-  if (s.syncTrigger === SyncTrigger.OnChange || s.syncTrigger === SyncTrigger.OnChangePoll)
-    return 'When something changes';
+  if (s.syncTrigger === SyncTrigger.OnChangePoll) return `Every ~${fmtMinutes(s.periodicMinutes)}`;
   return `Every ${fmtMinutes(s.periodicMinutes)}`;
 }
 
@@ -75,10 +74,10 @@ export function describeStatus(s: PowerStatus | null, settings: PowerSettings): 
         text: `Waiting for next scheduled time (${settings.scheduledTimes.join(', ')})`,
       });
     }
-  } else if (settings.syncTrigger === SyncTrigger.OnChange || settings.syncTrigger === SyncTrigger.OnChangePoll) {
+  } else if (settings.syncTrigger === SyncTrigger.OnChangePoll) {
     lines.push({
       good: true,
-      text: `Watching for changes — also checking for incoming every ~${settings.periodicMinutes} min`,
+      text: `Checking for changes every ~${settings.periodicMinutes} min`,
     });
   }
 

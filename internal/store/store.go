@@ -123,10 +123,9 @@ func (s *Store) SetName(name string) error {
 // PowerSettings is the marshallable shape of the Settings table's power
 // fields, returned by /api/power and consumed by the gate logic.
 type PowerSettings struct {
-	SyncTrigger              string   `json:"syncTrigger"`              // periodic | scheduled | on_change
-	PeriodicMinutes          int      `json:"periodicMinutes"`          // when SyncTrigger == "periodic"
+	SyncTrigger              string   `json:"syncTrigger"`              // periodic | scheduled | on_change_poll
+	PeriodicMinutes          int      `json:"periodicMinutes"`          // when SyncTrigger == "periodic" or "on_change_poll"
 	ScheduledTimes           []string `json:"scheduledTimes"`           // "HH:MM" entries, when SyncTrigger == "scheduled"
-	OnChangeDebounceMinutes  int      `json:"onChangeDebounceMinutes"`  // when SyncTrigger == "on_change"
 	NetworkMode              string   `json:"networkMode"`              // trusted_wifi | any_wifi | any
 	TrustedSSIDs             []string `json:"trustedSSIDs"`             // SSIDs that count as trusted when NetworkMode == "trusted_wifi"
 	PauseWhenBatteryLow      bool     `json:"pauseWhenBatteryLow"`      // pause when the battery is low (Android low-battery warning level)
@@ -142,7 +141,6 @@ func (s *Store) GetPowerSettings() (PowerSettings, error) {
 	p := PowerSettings{
 		SyncTrigger:              cfg.PowerSyncTrigger,
 		PeriodicMinutes:          cfg.PowerPeriodicMinutes,
-		OnChangeDebounceMinutes:  cfg.PowerOnChangeDebounceMinutes,
 		NetworkMode:              cfg.PowerNetworkMode,
 		PauseWhenBatteryLow:      cfg.PowerPauseWhenBatteryLow,
 		KeepSyncingWhileCharging: cfg.PowerKeepSyncingWhileCharging,
@@ -156,17 +154,15 @@ func (s *Store) GetPowerSettings() (PowerSettings, error) {
 	if p.TrustedSSIDs == nil {
 		p.TrustedSSIDs = []string{}
 	}
-	// "live" was removed in favour of periodic / scheduled / on_change.
-	// Migrate any existing rows that still carry it so users don't end
-	// up in a now-invalid state.
-	if p.SyncTrigger == "" || p.SyncTrigger == "live" {
-		p.SyncTrigger = "periodic"
+	// Migrate legacy trigger values to valid ones.
+	// "live" was removed in favour of periodic / scheduled / on_change_poll.
+	// "on_change" (inotify watcher) is removed — migrate to on_change_poll.
+	switch p.SyncTrigger {
+	case "", "live", "on_change":
+		p.SyncTrigger = "on_change_poll"
 	}
 	if p.PeriodicMinutes <= 0 {
 		p.PeriodicMinutes = 240
-	}
-	if p.OnChangeDebounceMinutes <= 0 {
-		p.OnChangeDebounceMinutes = 5
 	}
 	if p.NetworkMode == "" {
 		p.NetworkMode = "any_wifi"
@@ -181,7 +177,6 @@ func (s *Store) SetPowerSettings(p PowerSettings) error {
 		"power_sync_trigger":                p.SyncTrigger,
 		"power_periodic_minutes":            p.PeriodicMinutes,
 		"power_scheduled_times":             scheduledJSON,
-		"power_on_change_debounce_minutes":  p.OnChangeDebounceMinutes,
 		"power_network_mode":                p.NetworkMode,
 		"power_trusted_ssids":               ssidsJSON,
 		"power_pause_on_saver":              p.PauseWhenBatteryLow,

@@ -38,9 +38,7 @@ func (c *Client) SetFolderPaused(id string, paused bool) error {
 }
 
 // SetFolderFSWatcherDelay configures how long ST's per-folder filesystem
-// watcher waits after the last change before triggering a scan. This is
-// the on-change debounce — keeping folders unpaused while a long delay
-// is set is how the power gate's "on_change" mode is supposed to work.
+// watcher waits after the last change before triggering a scan.
 // `seconds` >= 1 (10 is ST's default).
 func (c *Client) SetFolderFSWatcherDelay(id string, seconds int) error {
 	if seconds < 1 {

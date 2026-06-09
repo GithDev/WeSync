@@ -49,14 +49,6 @@ class WeSyncService : Service(), mobile.PowerHost {
     // from a doze wake-up.
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    // Held continuously while the on_change file watcher is running.
-    // Without this the Go runtime freezes under doze and inotify events are
-    // never delivered to the consume() goroutine — the watcher appears to
-    // work but silently misses every file change until the next backstop tick.
-    // This lock is independent of wakeLock: it is acquired when the watcher
-    // starts (even while ST itself is sleeping between sessions) and released
-    // only when the watcher stops or the service is destroyed.
-    private var watcherWakeLock: PowerManager.WakeLock? = null
     private val lockMutex = Any()
     // power.start() registers receivers + kicks off the initial reapply.
     // We only want that *once* per service lifetime — without this guard every
@@ -67,8 +59,8 @@ class WeSyncService : Service(), mobile.PowerHost {
     private val shutdownRunnable: Runnable = object : Runnable {
         override fun run() {
             // Single source of truth: ask the gate whether ST still needs to be
-            // running for a background reason (open session, on_change watch, or
-            // charging). The gate computes this exactly as it decides ST's own
+            // running for a background reason (open session or charging).
+            // The gate computes this exactly as it decides ST's own
             // run-state, so the service can't disagree with it — which is what
             // used to let a plugged-in periodic sync die after the grace despite
             // "keep syncing while charging" being on.
@@ -152,10 +144,8 @@ class WeSyncService : Service(), mobile.PowerHost {
             }
             ACTION_BOOT -> {
                 // Device just rebooted, no UI. Start the gate (arms alarms)
-                // then schedule the normal self-stop: periodic/scheduled/on_change_poll
-                // don't need to sit resident (the alarm wakes us each time), while
-                // on_change (live file watcher) and charging keep us alive via
-                // shouldStayResident.
+                // then schedule the normal self-stop: alarms wake us each time;
+                // shouldStayResident keeps us alive while charging or a session is open.
                 if (!powerStarted) {
                     powerStarted = true
                     power?.start()
@@ -163,7 +153,7 @@ class WeSyncService : Service(), mobile.PowerHost {
                 main.removeCallbacks(shutdownRunnable)
                 main.postDelayed(shutdownRunnable, GRACE_MS)
             }
-            else -> {
+            ACTION_START_BACKEND, null -> {
                 if (!powerStarted) {
                     powerStarted = true
                     power?.start()
@@ -296,46 +286,6 @@ class WeSyncService : Service(), mobile.PowerHost {
         Log.i(TAG, "sync locks released")
     }
 
-    // OnWatcherActive is pushed by the Go gate when the on_change file watcher
-    // starts or stops. We hold a separate PARTIAL_WAKE_LOCK for the lifetime of
-    // the watcher so the Go runtime never freezes under doze between syncs —
-    // the watcher's consume() goroutine must stay schedulable to receive inotify
-    // events. This lock is deliberately lighter than the sync locks: no
-    // MulticastLock (we don't need LAN radio while ST sleeps).
-    override fun onWatcherActive(active: Boolean) {
-        synchronized(lockMutex) {
-            if (active) {
-                acquireWatcherLock()
-            } else {
-                releaseWatcherLock()
-            }
-        }
-    }
-
-    private fun acquireWatcherLock() {
-        if (watcherWakeLock != null) return
-        try {
-            val pm = getSystemService(POWER_SERVICE) as PowerManager
-            watcherWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wesync:watcher").apply {
-                setReferenceCounted(false)
-                // No timeout: held for the full lifetime of the watcher.
-                // The gate always pairs OnWatcherActive(true) with a later
-                // OnWatcherActive(false) (stopWatcher → notifyWatcherHost),
-                // and onDestroy calls releaseWatcherLock() as a backstop.
-                acquire()
-            }
-            Log.i(TAG, "watcher wake lock held")
-        } catch (t: Throwable) {
-            Log.w(TAG, "watcher wake lock acquire failed", t)
-        }
-    }
-
-    private fun releaseWatcherLock() {
-        watcherWakeLock?.let { if (it.isHeld) try { it.release() } catch (_: Throwable) {} }
-        watcherWakeLock = null
-        Log.i(TAG, "watcher wake lock released")
-    }
-
     override fun onDestroy() {
         Log.i(TAG, "service stopping — tearing down backend")
         main.removeCallbacks(shutdownRunnable)
@@ -343,7 +293,7 @@ class WeSyncService : Service(), mobile.PowerHost {
             Mobile.setPowerHost(null)
         } catch (_: Throwable) {
         }
-        synchronized(lockMutex) { releaseSyncLocks(); releaseWatcherLock() }
+        synchronized(lockMutex) { releaseSyncLocks() }
         power?.stop()
         power = null
         // backend.Stop also stops the bundled Syncthing subprocess, so by
@@ -408,6 +358,10 @@ class WeSyncService : Service(), mobile.PowerHost {
         // held) — a permission change fires no network event, so without this
         // the gate would keep a stale/blank SSID until an app restart.
         const val ACTION_REFRESH_NETWORK = "com.wesync.app.REFRESH_NETWORK"
+        // Sent by MainActivity after permissions are granted so the service
+        // re-runs startBackendIfReady() in its onStartCommand. Using a named
+        // action avoids logging a duplicate reason=initial on cold start.
+        const val ACTION_START_BACKEND = "com.wesync.app.START_BACKEND"
         const val EXTRA_DELAY_MS = "delayMs"
     }
 }

@@ -43,7 +43,7 @@ func TestTwoHandlesSeeEachOthersWrites(t *testing.T) {
 	// the already-used gate handle. If the gate reads the stale "periodic"
 	// here, that IS the "must restart to apply settings" bug.
 	if err := api.SetPowerSettings(PowerSettings{
-		SyncTrigger: "on_change", NetworkMode: "trusted_wifi", OnChangeDebounceMinutes: 7,
+		SyncTrigger: "on_change_poll", NetworkMode: "trusted_wifi", PeriodicMinutes: 60,
 	}); err != nil {
 		t.Fatalf("second SetPowerSettings: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestTwoHandlesSeeEachOthersWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second GetPowerSettings: %v", err)
 	}
-	if got.SyncTrigger != "on_change" || got.OnChangeDebounceMinutes != 7 {
+	if got.SyncTrigger != "on_change_poll" || got.PeriodicMinutes != 60 {
 		t.Fatalf("gate handle read STALE settings after API update: %+v — confirms the 'restart to apply' bug", got)
 	}
 }

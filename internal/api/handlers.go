@@ -577,7 +577,9 @@ func (h *Handlers) Power(w http.ResponseWriter, r *http.Request) {
 		// Defensive validation — clamp / fix common mistakes so the gate
 		// can rely on these values without re-checking.
 		switch p.SyncTrigger {
-		case "periodic", "scheduled", "on_change", "on_change_poll":
+		case "periodic", "scheduled", "on_change_poll":
+		case "on_change", "live":
+			p.SyncTrigger = "on_change_poll" // legacy — migrate on the way in
 		default:
 			p.SyncTrigger = "periodic"
 		}
@@ -588,9 +590,6 @@ func (h *Handlers) Power(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.PeriodicMinutes <= 0 {
 			p.PeriodicMinutes = 120
-		}
-		if p.OnChangeDebounceMinutes <= 0 {
-			p.OnChangeDebounceMinutes = 5
 		}
 		if p.ScheduledTimes == nil {
 			p.ScheduledTimes = []string{}

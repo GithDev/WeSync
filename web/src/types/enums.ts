@@ -7,7 +7,6 @@ export enum FolderDirection {
 export enum SyncTrigger {
   Periodic = 'periodic',
   Scheduled = 'scheduled',
-  OnChange = 'on_change',
   OnChangePoll = 'on_change_poll',
 }
 

@@ -21,10 +21,9 @@ import { isAndroid } from '../../platform';
 //      For users who want to verify the autonomous flow actually ran.
 
 const DEFAULTS: PowerSettings = {
-  syncTrigger: SyncTrigger.OnChange,
+  syncTrigger: SyncTrigger.OnChangePoll,
   periodicMinutes: 240,
   scheduledTimes: [],
-  onChangeDebounceMinutes: 5,
   networkMode: NetworkMode.AnyWifi,
   trustedSSIDs: [],
   pauseWhenBatteryLow: true,
@@ -33,11 +32,8 @@ const DEFAULTS: PowerSettings = {
 };
 
 const PERIODIC_OPTIONS = [15, 30, 60, 120, 240, 480];
-const DEBOUNCE_OPTIONS = [1, 2, 5, 10, 15, 30, 60];
 
-// A minutes dropdown shared by the periodic-interval and on-change-debounce
-// pickers, so the option list and the "min/h" formatting (fmtMinutes) live in
-// one place instead of being copy-pasted at every <select>.
+// A minutes dropdown for the periodic-interval picker.
 function MinutesSelect({
   options,
   value,
@@ -212,43 +208,6 @@ export function PowerSection() {
               onChange={(times) => persist({ ...settings, scheduledTimes: times })}
               disabled={saving}
             />
-          )}
-          <Radio
-            name="trigger"
-            value="on_change"
-            label="When something changes"
-            sublabel="Wake and sync shortly after your files change, then sleep. Also checks in regularly to receive changes from your other devices."
-            checked={settings.syncTrigger === SyncTrigger.OnChange}
-            onChange={() => persist({ ...settings, syncTrigger: SyncTrigger.OnChange })}
-            disabled={saving}
-          />
-          {settings.syncTrigger === SyncTrigger.OnChange && (
-            <div className="ml-7 flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Sync within</span>
-                <MinutesSelect
-                  options={DEBOUNCE_OPTIONS}
-                  value={settings.onChangeDebounceMinutes}
-                  onChange={(onChangeDebounceMinutes) =>
-                    persist({ ...settings, onChangeDebounceMinutes })
-                  }
-                  disabled={saving}
-                />
-                <span className="text-xs text-slate-400">of a change</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-500">Also check every</label>
-                <MinutesSelect
-                  options={PERIODIC_OPTIONS}
-                  value={settings.periodicMinutes}
-                  onChange={(periodicMinutes) => persist({ ...settings, periodicMinutes })}
-                  disabled={saving}
-                />
-                <span className="text-xs text-slate-400">
-                  to receive changes from your other devices
-                </span>
-              </div>
-            </div>
           )}
         </div>
       </SettingRow>

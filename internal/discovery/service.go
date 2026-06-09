@@ -20,15 +20,20 @@ type Service struct {
 	listener     *Listener
 	Peers        chan Peer
 	PeerGone     chan string // SIDs of peers that stopped announcing (for wire cleanup)
-	wantAnnounce atomic.Bool
-	foreground   atomic.Bool
+	wantAnnounce  atomic.Bool
+	foreground    atomic.Bool
+	announceReady atomic.Bool // true only after the 2-s debounce in SetForeground(true)
 
-	// Two independent inputs; actual announcing is COMPUTED from both (see
-	// shouldAnnounce) so no flag is ever written by two owners. wantAnnounce is
-	// the user's discoverability preference (persisted; set only by the visibility
-	// toggle). foreground is the UI-open/lifecycle gate (set only by SetForeground).
-	// We announce only when the user wants to AND the UI is open; going background
-	// silences UDP without losing the preference.
+	// Three independent atomic inputs gating different behaviors:
+	// - wantAnnounce: user's discoverability preference (set only by SetWantAnnounce).
+	// - foreground: whether the UI is open — controls IsListening and peer forwarding
+	//   (set only by SetForeground; takes effect immediately).
+	// - announceReady: whether we may emit UDP announces — owned by SetForeground but
+	//   transitions to true only after a 2-s debounce, so a brief notification-tap open
+	//   (onResume→onPause in <2 s) doesn't broadcast our presence for the full 15-s
+	//   grace period on every other device. Goes false immediately on SetForeground(false).
+	// shouldAnnounce is computed from wantAnnounce AND announceReady (not foreground),
+	// so the periodic announce.C ticker is also suppressed during the 2-s window.
 
 	mu       sync.Mutex
 	lastSeen map[string]time.Time // SID → last announce time
@@ -49,6 +54,11 @@ type Service struct {
 	// recovers on network latency instead of up to announceInterval + backoff.
 	// Buffered(1) and kicked non-blockingly, so kicks coalesce and never block.
 	announceNow chan struct{}
+
+	// fgMu guards fgTimer. Separate from mu to avoid holding the peer-map
+	// lock during timer setup.
+	fgMu    sync.Mutex
+	fgTimer *time.Timer
 }
 
 func NewService(port int) (*Service, error) {
@@ -74,9 +84,35 @@ func (s *Service) SID() string { return s.announcer.SID() }
 // writer of foreground. Either change kicks an immediate announce when the
 // computed shouldAnnounce is now true.
 func (s *Service) SetWantAnnounce(v bool) { s.wantAnnounce.Store(v); s.kickIf(s.shouldAnnounce()) }
-func (s *Service) SetForeground(v bool)   { s.foreground.Store(v); s.kickIf(s.shouldAnnounce()) }
 func (s *Service) WantAnnounce() bool     { return s.wantAnnounce.Load() }
 func (s *Service) IsListening() bool      { return s.foreground.Load() }
+
+// SetForeground records whether the UI is open. Going background silences UDP
+// immediately; going foreground arms a 2-second debounce before the first
+// announce fires. This prevents a brief app-open (e.g. a notification tap that
+// triggers onResume→onPause in under 2s) from broadcasting our presence for
+// the full 15s grace period on every other device — without delaying the
+// announce for genuine sessions (the user opened the app and stayed).
+func (s *Service) SetForeground(v bool) {
+	s.foreground.Store(v)
+	s.fgMu.Lock()
+	defer s.fgMu.Unlock()
+	if s.fgTimer != nil {
+		s.fgTimer.Stop()
+		s.fgTimer = nil
+	}
+	if !v {
+		s.announceReady.Store(false)
+		return
+	}
+	s.fgTimer = time.AfterFunc(2*time.Second, func() {
+		s.fgMu.Lock()
+		s.fgTimer = nil
+		s.fgMu.Unlock()
+		s.announceReady.Store(true)
+		s.kickIf(s.shouldAnnounce())
+	})
+}
 
 // PresentAddr reports whether we are CURRENTLY hearing UDP announces from a peer
 // at this source IP (within the grace period). The API gates the discoverable
@@ -96,9 +132,9 @@ func (s *Service) PresentAddr(addr string) bool {
 }
 
 // shouldAnnounce is THE computed property: announce only when the user wants to
-// be discoverable AND the UI is open. Re-evaluated wherever it's needed; never
-// stored, so the two inputs can never disagree with a cached result.
-func (s *Service) shouldAnnounce() bool { return s.wantAnnounce.Load() && s.foreground.Load() }
+// be discoverable AND the debounce has cleared. Re-evaluated wherever it's
+// needed; never stored, so the two inputs can never disagree with a cached result.
+func (s *Service) shouldAnnounce() bool { return s.wantAnnounce.Load() && s.announceReady.Load() }
 
 // kickIf asks Run to announce immediately when announcing was just turned on, so
 // re-enabling discovery (UI reopened, or "visible" toggled on) is heard by peers

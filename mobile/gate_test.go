@@ -1,11 +1,9 @@
 package mobile
 
 import (
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"wesync/internal/stmanager"
 	"wesync/internal/store"
 )
 
@@ -25,8 +23,8 @@ func TestDesiredRunning_Foreground_AlwaysTrue(t *testing.T) {
 		hasWifi, saverOn bool
 		mode             string
 	}{
-		{"on_change no wifi", false, false, "on_change"},
-		{"on_change saver on", true, true, "on_change"},
+		{"on_change_poll no wifi", false, false, "on_change_poll"},
+		{"on_change_poll saver on", true, true, "on_change_poll"},
 		{"periodic no wifi", false, false, "periodic"},
 		{"periodic session closed", true, false, "periodic"},
 	}
@@ -83,14 +81,12 @@ func TestDesiredRunning_Periodic_RequiresAllGates(t *testing.T) {
 	}
 }
 
-func TestDesiredRunning_OnChange_SessionGated(t *testing.T) {
-	// on_change no longer keeps ST resident — ST is the heavy part and now sleeps
-	// between sessions just like periodic. WeSync's own file watcher opens a
-	// session on a change; with NO open session ST stays off, even on a fine
-	// network. (This is the whole point of the redesign: ST sleeps.)
+func TestDesiredRunning_OnChangePoll_SessionGated(t *testing.T) {
+	// on_change_poll is session-gated: ST sleeps between alarms. With no open
+	// session ST stays off even on a fine network.
 	mk := func() snapshot {
 		s := newSnap(store.PowerSettings{
-			SyncTrigger:         "on_change",
+			SyncTrigger:         "on_change_poll",
 			NetworkMode:         "any_wifi",
 			PauseWhenBatteryLow: true,
 		})
@@ -99,29 +95,29 @@ func TestDesiredRunning_OnChange_SessionGated(t *testing.T) {
 		return s
 	}
 
-	s := mk() // network ok, no open session
+	s := mk() // network ok, no open session → stays off
 	if s.desiredRunning(time.Now()) {
-		t.Errorf("on_change on wifi with no session: ST should sleep, not run")
+		t.Errorf("on_change_poll on wifi with no session: ST should sleep, not run")
 	}
 
-	s = mk() // a session is open (watcher/tick opened it) → ST runs
+	s = mk() // a session is open → ST runs
 	s.sessionEndsAt = time.Now().Add(time.Minute)
 	if !s.desiredRunning(time.Now()) {
-		t.Errorf("on_change with an open session: ST should run")
+		t.Errorf("on_change_poll with an open session: ST should run")
 	}
 
 	s = mk() // network gate still applies even with a session open
 	s.hasWifi = false
 	s.sessionEndsAt = time.Now().Add(time.Minute)
 	if s.desiredRunning(time.Now()) {
-		t.Errorf("on_change without wifi: should not run even with a session")
+		t.Errorf("on_change_poll without wifi: should not run even with a session")
 	}
 
 	s = mk() // battery gate still applies
 	s.batteryLow = true
 	s.sessionEndsAt = time.Now().Add(time.Minute)
 	if s.desiredRunning(time.Now()) {
-		t.Errorf("on_change with battery low: should not run")
+		t.Errorf("on_change_poll with battery low: should not run")
 	}
 }
 
@@ -366,8 +362,8 @@ func TestShouldStayResident(t *testing.T) {
 	// ShouldStayResident is what the Android service polls to decide whether to
 	// self-stop. It must mirror the gate's own background run decision — and in
 	// particular honor "keep syncing while charging", which the old split
-	// (isSyncSessionActive || on_change) ignored, letting a plugged-in periodic
-	// sync die after the grace.
+	// (isSyncSessionActive || shouldKeepServiceAlive) ignored, letting a
+	// plugged-in periodic sync die after the grace.
 	set := func(mutate func()) {
 		g.mu.Lock()
 		g.appForeground = false
@@ -417,56 +413,6 @@ func TestShouldStayResident(t *testing.T) {
 	if ShouldStayResident() {
 		t.Errorf("stuck foreground flag must not keep the service resident")
 	}
-
-	// on_change pins the service even with nothing else going on and ST asleep:
-	// it must stay alive to host the file watcher (which notices changes and
-	// re-opens sessions). Set a state where periodic would self-stop.
-	set(func() { g.settings.SyncTrigger = "on_change" })
-	if !ShouldStayResident() {
-		t.Errorf("on_change must keep the service resident to host the watcher")
-	}
-}
-
-func TestAnyFolderReceives(t *testing.T) {
-	cases := []struct {
-		name    string
-		folders []stmanager.STFolder
-		want    bool
-	}{
-		{"empty", nil, false},
-		{"all sendonly", []stmanager.STFolder{{Type: "sendonly"}, {Type: "sendonly"}}, false},
-		{"one sendreceive", []stmanager.STFolder{{Type: "sendonly"}, {Type: "sendreceive"}}, true},
-		{"receiveonly counts as receiving", []stmanager.STFolder{{Type: "receiveonly"}}, true},
-		{"empty type is ST default sendreceive", []stmanager.STFolder{{Type: ""}}, true},
-	}
-	for _, c := range cases {
-		if got := anyFolderReceives(c.folders); got != c.want {
-			t.Errorf("%s: anyFolderReceives = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
-func TestChangeBatcher_FixedDelayFromFirstChange(t *testing.T) {
-	var fires int32
-	b := newChangeBatcher(40*time.Millisecond, func() { atomic.AddInt32(&fires, 1) })
-
-	// A flurry of changes within one window must collapse to a single fire —
-	// the fixed delay runs from the FIRST change and ignores the rest.
-	for i := 0; i < 10; i++ {
-		b.notifyChange()
-	}
-	time.Sleep(90 * time.Millisecond)
-	if n := atomic.LoadInt32(&fires); n != 1 {
-		t.Fatalf("flurry should fire once, fired %d times", n)
-	}
-
-	// A later change, after the first window closed, fires again.
-	b.notifyChange()
-	time.Sleep(90 * time.Millisecond)
-	if n := atomic.LoadInt32(&fires); n != 2 {
-		t.Fatalf("a new change after the window should fire again, total fires = %d", n)
-	}
-}
 
 func TestDesiredRunning_ChargingModifier(t *testing.T) {
 	mk := func() snapshot {
