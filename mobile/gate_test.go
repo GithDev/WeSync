@@ -413,6 +413,7 @@ func TestShouldStayResident(t *testing.T) {
 	if ShouldStayResident() {
 		t.Errorf("stuck foreground flag must not keep the service resident")
 	}
+}
 
 func TestDesiredRunning_ChargingModifier(t *testing.T) {
 	mk := func() snapshot {
