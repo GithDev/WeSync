@@ -174,9 +174,30 @@ export function PowerSection() {
         <div className="flex flex-col gap-3">
           <Radio
             name="trigger"
+            value="on_change_poll"
+            label="When something changes"
+            sublabel="Check for changes at a regular interval — sync only runs if files changed (or as a safety net for incoming changes)."
+            checked={settings.syncTrigger === SyncTrigger.OnChangePoll}
+            onChange={() => persist({ ...settings, syncTrigger: SyncTrigger.OnChangePoll })}
+            disabled={saving}
+          />
+          {settings.syncTrigger === SyncTrigger.OnChangePoll && (
+            <div className="ml-7 flex items-center gap-2">
+              <label className="text-xs text-slate-500">Check every</label>
+              <MinutesSelect
+                options={PERIODIC_OPTIONS}
+                value={settings.periodicMinutes}
+                onChange={(periodicMinutes) => persist({ ...settings, periodicMinutes })}
+                disabled={saving}
+              />
+              <span className="text-xs text-slate-400">(approximate, ±15 min)</span>
+            </div>
+          )}
+          <Radio
+            name="trigger"
             value="periodic"
             label="Every so often"
-            sublabel="Wake up at a regular interval and sync if anything changed."
+            sublabel="Wake up at a regular interval and sync regardless of whether anything changed."
             checked={settings.syncTrigger === SyncTrigger.Periodic}
             onChange={() => persist({ ...settings, syncTrigger: SyncTrigger.Periodic })}
             disabled={saving}
