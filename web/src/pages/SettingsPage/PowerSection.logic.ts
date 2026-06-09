@@ -77,7 +77,7 @@ export function describeStatus(s: PowerStatus | null, settings: PowerSettings): 
   } else if (settings.syncTrigger === SyncTrigger.OnChangePoll) {
     lines.push({
       good: true,
-      text: `Watching for changes (checks every ~${settings.onChangePollMinutes} min)`,
+      text: `Watching for changes — quick scan every ~${settings.onChangePollMinutes} min`,
     });
   }
 

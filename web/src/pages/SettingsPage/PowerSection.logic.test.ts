@@ -7,7 +7,7 @@ function makeSettings(over: Partial<PowerSettings> = {}): PowerSettings {
   return {
     syncTrigger: SyncTrigger.OnChangePoll,
     periodicMinutes: 240,
-    onChangePollMinutes: 5,
+    onChangePollMinutes: 30,
     scheduledTimes: [],
     networkMode: NetworkMode.AnyWifi,
     trustedSSIDs: [],

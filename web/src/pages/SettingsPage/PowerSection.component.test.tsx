@@ -43,7 +43,7 @@ vi.mock('../../api/client', async (importOriginal) => {
 const baseSettings: PowerSettings = {
   syncTrigger: SyncTrigger.OnChangePoll,
   periodicMinutes: 240,
-  onChangePollMinutes: 5,
+  onChangePollMinutes: 30,
   scheduledTimes: [],
   networkMode: NetworkMode.AnyWifi,
   trustedSSIDs: [],

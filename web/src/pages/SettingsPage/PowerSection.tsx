@@ -23,7 +23,7 @@ import { isAndroid } from '../../platform';
 const DEFAULTS: PowerSettings = {
   syncTrigger: SyncTrigger.OnChangePoll,
   periodicMinutes: 240,
-  onChangePollMinutes: 5,
+  onChangePollMinutes: 30,
   scheduledTimes: [],
   networkMode: NetworkMode.AnyWifi,
   trustedSSIDs: [],
@@ -178,7 +178,7 @@ export function PowerSection() {
             name="trigger"
             value="on_change_poll"
             label="When something changes"
-            sublabel="Check for changes at a regular interval — sync only runs if files changed (or as a safety net for incoming changes)."
+            sublabel="Lightweight check runs at the chosen interval — only a directory scan, no data transfer. Sync only opens if files actually changed."
             checked={settings.syncTrigger === SyncTrigger.OnChangePoll}
             onChange={() => persist({ ...settings, syncTrigger: SyncTrigger.OnChangePoll })}
             disabled={saving}
@@ -186,7 +186,7 @@ export function PowerSection() {
           {settings.syncTrigger === SyncTrigger.OnChangePoll && (
             <div className="ml-7 flex flex-col gap-2">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-500">Check for changes every</label>
+                <label className="text-xs text-slate-500">Quick scan every</label>
                 <MinutesSelect
                   options={POLL_OPTIONS}
                   value={settings.onChangePollMinutes}

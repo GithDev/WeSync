@@ -14,7 +14,7 @@ func TestPowerSettings_Defaults(t *testing.T) {
 	want := PowerSettings{
 		SyncTrigger:              "on_change_poll",
 		PeriodicMinutes:          240,
-		OnChangePollMinutes:      5,
+		OnChangePollMinutes:      30,
 		ScheduledTimes:           []string{},
 		NetworkMode:              "any_wifi",
 		TrustedSSIDs:             []string{},

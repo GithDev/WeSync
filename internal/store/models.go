@@ -21,7 +21,7 @@ type Settings struct {
 	// map-based UPDATE in store.go aligned with the actual schema.
 	PowerSyncTrigger         string `gorm:"column:power_sync_trigger;not null;default:'on_change_poll'"`
 	PowerPeriodicMinutes     int    `gorm:"column:power_periodic_minutes;not null;default:240"`
-	PowerOnChangePollMinutes int    `gorm:"column:power_on_change_poll_minutes;not null;default:5"`
+	PowerOnChangePollMinutes int    `gorm:"column:power_on_change_poll_minutes;not null;default:30"`
 	PowerScheduledTimes  string `gorm:"column:power_scheduled_times;not null;default:'[]'"`
 	PowerNetworkMode     string `gorm:"column:power_network_mode;not null;default:'any_wifi'"`
 	PowerTrustedSSIDs    string `gorm:"column:power_trusted_ssids;not null;default:'[]'"`
