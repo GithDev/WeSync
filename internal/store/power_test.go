@@ -14,6 +14,7 @@ func TestPowerSettings_Defaults(t *testing.T) {
 	want := PowerSettings{
 		SyncTrigger:              "on_change_poll",
 		PeriodicMinutes:          240,
+		OnChangePollMinutes:      5,
 		ScheduledTimes:           []string{},
 		NetworkMode:              "any_wifi",
 		TrustedSSIDs:             []string{},
@@ -31,6 +32,7 @@ func TestPowerSettings_RoundTripTrustedWifiEmpty(t *testing.T) {
 	in := PowerSettings{
 		SyncTrigger:         "periodic",
 		PeriodicMinutes:     120,
+		OnChangePollMinutes: 5,
 		ScheduledTimes:      []string{},
 		NetworkMode:         "trusted_wifi",
 		TrustedSSIDs:        []string{},
@@ -53,6 +55,7 @@ func TestPowerSettings_RoundTripTrustedWifiWithSSIDs(t *testing.T) {
 	in := PowerSettings{
 		SyncTrigger:         "on_change_poll",
 		PeriodicMinutes:     60,
+		OnChangePollMinutes: 10,
 		ScheduledTimes:      []string{"02:00", "14:30"},
 		NetworkMode:         "trusted_wifi",
 		TrustedSSIDs:        []string{"Home", "Office WiFi"},
@@ -75,6 +78,7 @@ func TestPowerSettings_RoundTripScheduledTimes(t *testing.T) {
 	in := PowerSettings{
 		SyncTrigger:         "scheduled",
 		PeriodicMinutes:     120,
+		OnChangePollMinutes: 5,
 		ScheduledTimes:      []string{"00:00", "06:00", "12:00", "18:00"},
 		NetworkMode:         "any",
 		TrustedSSIDs:        []string{},

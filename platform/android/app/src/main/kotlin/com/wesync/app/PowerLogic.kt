@@ -68,6 +68,7 @@ object PowerLogic {
 data class WakePlan(
     val mode: String,
     val periodicMinutes: Int,
+    val onChangePollMinutes: Int,
     val scheduledTimes: List<String>,
 ) {
     companion object {
@@ -75,6 +76,7 @@ data class WakePlan(
             return WakePlan(
                 mode = o.optString("mode", ""),
                 periodicMinutes = o.optInt("periodicMinutes", 120),
+                onChangePollMinutes = o.optInt("onChangePollMinutes", 5),
                 scheduledTimes = toStringList(o.optJSONArray("scheduledTimes")),
             )
         }

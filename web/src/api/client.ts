@@ -7,6 +7,7 @@ export { FolderDirection, SyncTrigger, NetworkMode };
 export interface PowerSettings {
   syncTrigger: SyncTrigger;
   periodicMinutes: number;
+  onChangePollMinutes: number;
   scheduledTimes: string[];
   networkMode: NetworkMode;
   trustedSSIDs: string[];

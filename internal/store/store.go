@@ -124,7 +124,8 @@ func (s *Store) SetName(name string) error {
 // fields, returned by /api/power and consumed by the gate logic.
 type PowerSettings struct {
 	SyncTrigger              string   `json:"syncTrigger"`              // periodic | scheduled | on_change_poll
-	PeriodicMinutes          int      `json:"periodicMinutes"`          // when SyncTrigger == "periodic" or "on_change_poll"
+	PeriodicMinutes          int      `json:"periodicMinutes"`          // safety-net tick: periodic always, on_change_poll always, scheduled N/A
+	OnChangePollMinutes      int      `json:"onChangePollMinutes"`      // fast change-detection poll interval (on_change_poll only)
 	ScheduledTimes           []string `json:"scheduledTimes"`           // "HH:MM" entries, when SyncTrigger == "scheduled"
 	NetworkMode              string   `json:"networkMode"`              // trusted_wifi | any_wifi | any
 	TrustedSSIDs             []string `json:"trustedSSIDs"`             // SSIDs that count as trusted when NetworkMode == "trusted_wifi"
@@ -141,6 +142,7 @@ func (s *Store) GetPowerSettings() (PowerSettings, error) {
 	p := PowerSettings{
 		SyncTrigger:              cfg.PowerSyncTrigger,
 		PeriodicMinutes:          cfg.PowerPeriodicMinutes,
+		OnChangePollMinutes:      cfg.PowerOnChangePollMinutes,
 		NetworkMode:              cfg.PowerNetworkMode,
 		PauseWhenBatteryLow:      cfg.PowerPauseWhenBatteryLow,
 		KeepSyncingWhileCharging: cfg.PowerKeepSyncingWhileCharging,
@@ -164,6 +166,9 @@ func (s *Store) GetPowerSettings() (PowerSettings, error) {
 	if p.PeriodicMinutes <= 0 {
 		p.PeriodicMinutes = 240
 	}
+	if p.OnChangePollMinutes <= 0 {
+		p.OnChangePollMinutes = 5
+	}
 	if p.NetworkMode == "" {
 		p.NetworkMode = "any_wifi"
 	}
@@ -176,6 +181,7 @@ func (s *Store) SetPowerSettings(p PowerSettings) error {
 	return s.db.Model(&Settings{}).Where("id = ?", 1).Updates(map[string]any{
 		"power_sync_trigger":                p.SyncTrigger,
 		"power_periodic_minutes":            p.PeriodicMinutes,
+		"power_on_change_poll_minutes":      p.OnChangePollMinutes,
 		"power_scheduled_times":             scheduledJSON,
 		"power_network_mode":                p.NetworkMode,
 		"power_trusted_ssids":               ssidsJSON,

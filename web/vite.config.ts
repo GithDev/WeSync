@@ -60,5 +60,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: ['e2e/**', '**/node_modules/**'],
+    environmentMatchGlobs: [['**/*.component.test.{ts,tsx}', 'happy-dom']],
+    setupFiles: ['./src/test-setup.ts'],
   },
 });

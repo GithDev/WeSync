@@ -161,6 +161,29 @@ func OnTriggerAlarm() {
 	OpenSyncSession()
 }
 
+// OnTriggerPollAlarm is the fast change-detection counterpart to OnTriggerAlarm.
+// Called by the short-interval poll alarm for on_change_poll mode.
+// Runs the mtime snapshot check and opens a session ONLY if structural changes
+// are detected — no session is opened on a clean poll (saves battery). The slow
+// safety-net alarm (OnTriggerAlarm) still fires unconditionally every periodicMinutes.
+func OnTriggerPollAlarm() {
+	g.mu.Lock()
+	snap := g.snapshotLocked()
+	g.mu.Unlock()
+
+	chargingOverride := snap.charging && snap.settings.KeepSyncingWhileCharging
+	if !snap.networkAllowed() || (!snap.batteryAllowed() && !chargingOverride) {
+		g.emitEvent("tick", "poll: conditions not met; skipped")
+		return
+	}
+	if pollCheckChanged() {
+		g.emitEvent("tick", "poll: structural changes detected — opening session")
+		OpenSyncSession()
+	} else {
+		g.emitEvent("tick", "poll: no structural changes")
+	}
+}
+
 // OpenSyncSession opens a sync session: ST is allowed to run (subject to the
 // network/battery gates) until it reports the sync complete. Called by
 // OnTriggerAlarm (periodic / scheduled / on_change_poll) and by the manual
@@ -244,22 +267,29 @@ func RefreshPowerSettings() {
 // arms whatever this returns:
 //
 //	{ "mode": "periodic|scheduled|on_change_poll",
-//	  "periodicMinutes": 120,
+//	  "periodicMinutes": 120,        // safety-net tick for periodic / on_change_poll
+//	  "onChangePollMinutes": 5,      // fast change-detection poll (on_change_poll only)
 //	  "scheduledTimes": ["07:00","19:00"] }
+//
+// on_change_poll arms TWO alarms: a fast poll (onChangePollMinutes) that fires
+// OnTriggerPollAlarm and only opens a session when changes are detected, and a
+// slow safety-net (periodicMinutes) that fires OnTriggerAlarm and always syncs.
 func WakePlanJSON() string {
 	g.mu.Lock()
 	s := g.settings
 	g.mu.Unlock()
 
 	type plan struct {
-		Mode            string   `json:"mode"`
-		PeriodicMinutes int      `json:"periodicMinutes"`
-		ScheduledTimes  []string `json:"scheduledTimes"`
+		Mode                string   `json:"mode"`
+		PeriodicMinutes     int      `json:"periodicMinutes"`
+		OnChangePollMinutes int      `json:"onChangePollMinutes"`
+		ScheduledTimes      []string `json:"scheduledTimes"`
 	}
 	b, _ := json.Marshal(plan{
-		Mode:            s.SyncTrigger,
-		PeriodicMinutes: s.PeriodicMinutes,
-		ScheduledTimes:  s.ScheduledTimes,
+		Mode:                s.SyncTrigger,
+		PeriodicMinutes:     s.PeriodicMinutes,
+		OnChangePollMinutes: s.OnChangePollMinutes,
+		ScheduledTimes:      s.ScheduledTimes,
 	})
 	return string(b)
 }

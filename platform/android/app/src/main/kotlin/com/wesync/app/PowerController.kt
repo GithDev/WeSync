@@ -29,9 +29,12 @@ import java.util.concurrent.TimeUnit
 //   1. Push connectivity changes to Go (Mobile.onNetworkState).
 //   2. Push battery-low and charging changes to Go (Mobile.onBatteryLow /
 //      onChargingState).
-//   3. Read the wake plan and arm AlarmManager, whose fire calls
-//      Mobile.onTriggerAlarm(). periodic/scheduled fire at their interval/times;
-//      on_change_poll uses the same alarm (snapshot diff at each fire).
+//   3. Read the wake plan and arm AlarmManager. on_change_poll arms TWO
+//      independent alarms: a fast poll (onChangePollMinutes → ACTION_FIRE_POLL
+//      → Mobile.onTriggerPollAlarm, session only if changes detected) and a
+//      slow safety-net (periodicMinutes → ACTION_FIRE → Mobile.onTriggerAlarm,
+//      always opens a session). The two alarms rearm themselves independently
+//      so neither resets the other's countdown.
 //
 // We never interpret the trigger mode's meaning ourselves — that logic
 // lives in exactly one place, the Go gate. One instance per Service
@@ -448,10 +451,12 @@ class PowerController(private val ctx: Context) {
     // ── AlarmManager (sync triggers) ──────────────────────────────────────
 
     private fun cancelAlarms() {
-        alarmManager.cancel(triggerPendingIntent())
+        alarmManager.cancel(safetyPendingIntent())
+        alarmManager.cancel(pollPendingIntent())
     }
 
-    private fun triggerPendingIntent(): PendingIntent {
+    // Safety-net alarm: fires ACTION_FIRE → Mobile.onTriggerAlarm() (always opens session).
+    private fun safetyPendingIntent(): PendingIntent {
         val intent = Intent(ctx, TriggerReceiver::class.java).setAction(TriggerReceiver.ACTION_FIRE)
         return PendingIntent.getBroadcast(
             ctx,
@@ -461,22 +466,56 @@ class PowerController(private val ctx: Context) {
         )
     }
 
+    // Fast change-detection alarm: fires ACTION_FIRE_POLL → Mobile.onTriggerPollAlarm()
+    // (opens session only if directory changes detected).
+    private fun pollPendingIntent(): PendingIntent {
+        val intent = Intent(ctx, TriggerReceiver::class.java).setAction(TriggerReceiver.ACTION_FIRE_POLL)
+        return PendingIntent.getBroadcast(
+            ctx,
+            PI_REQUEST_POLL,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    // Re-arm only the safety-net alarm (called after ACTION_FIRE fires).
+    fun rearmSafetyAlarm() {
+        val plan = fetchWakePlan() ?: return
+        armSafetyAlarm(plan)
+    }
+
+    // Re-arm only the fast poll alarm (called after ACTION_FIRE_POLL fires).
+    fun rearmPollAlarm() {
+        val plan = fetchWakePlan() ?: return
+        armPollAlarm(plan)
+    }
+
+    private fun armSafetyAlarm(p: WakePlan) {
+        val ms = TimeUnit.MINUTES.toMillis(p.periodicMinutes.coerceAtLeast(1).toLong())
+        val fireAt = System.currentTimeMillis() + ms
+        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, safetyPendingIntent())
+        Log.i(TAG, "armed safety alarm for ${java.util.Date(fireAt)} (every ${p.periodicMinutes} min)")
+    }
+
+    private fun armPollAlarm(p: WakePlan) {
+        val ms = TimeUnit.MINUTES.toMillis(p.onChangePollMinutes.coerceAtLeast(1).toLong())
+        val fireAt = System.currentTimeMillis() + ms
+        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pollPendingIntent())
+        Log.i(TAG, "armed poll alarm for ${java.util.Date(fireAt)} (every ${p.onChangePollMinutes} min)")
+    }
+
     private fun rearmAlarms(p: WakePlan) {
         cancelAlarms()
         when (p.mode) {
-            "periodic", "on_change_poll" -> {
-                // Both use the same doze-friendly self-rearming alarm
-                // (setAndAllowWhileIdle + RTC_WAKEUP; plain setInexactRepeating
-                // never fires during doze). The gate (Mobile.onTriggerAlarm)
-                // handles all trigger-specific logic.
-                val ms = TimeUnit.MINUTES.toMillis(p.periodicMinutes.coerceAtLeast(1).toLong())
-                val fireAt = System.currentTimeMillis() + ms
-                alarmManager.setAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    fireAt,
-                    triggerPendingIntent(),
-                )
-                Log.i(TAG, "armed ${p.mode} alarm for ${java.util.Date(fireAt)} (every ${p.periodicMinutes} min, self-rearming)")
+            "periodic" -> {
+                armSafetyAlarm(p)
+                Log.i(TAG, "armed periodic alarm (every ${p.periodicMinutes} min, self-rearming)")
+            }
+            "on_change_poll" -> {
+                // Two independent alarms: fast poll for change detection, slow safety-net.
+                // They rearm themselves separately so neither resets the other's countdown.
+                armPollAlarm(p)
+                armSafetyAlarm(p)
             }
             "scheduled" -> {
                 val next = nextScheduledMillis(p.scheduledTimes)
@@ -484,7 +523,7 @@ class PowerController(private val ctx: Context) {
                     alarmManager.setAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
                         next,
-                        triggerPendingIntent(),
+                        safetyPendingIntent(),
                     )
                     Log.i(TAG, "armed scheduled alarm for ${java.util.Date(next)}")
                 }
@@ -504,5 +543,6 @@ class PowerController(private val ctx: Context) {
     companion object {
         private const val TAG = "WeSync.PowerCtl"
         private const val PI_REQUEST_TRIGGER = 1100
+        private const val PI_REQUEST_POLL = 1101
     }
 }

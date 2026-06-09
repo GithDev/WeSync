@@ -23,6 +23,7 @@ import { isAndroid } from '../../platform';
 const DEFAULTS: PowerSettings = {
   syncTrigger: SyncTrigger.OnChangePoll,
   periodicMinutes: 240,
+  onChangePollMinutes: 5,
   scheduledTimes: [],
   networkMode: NetworkMode.AnyWifi,
   trustedSSIDs: [],
@@ -32,6 +33,7 @@ const DEFAULTS: PowerSettings = {
 };
 
 const PERIODIC_OPTIONS = [15, 30, 60, 120, 240, 480];
+const POLL_OPTIONS = [1, 2, 5, 10, 15, 30, 60];
 
 // A minutes dropdown for the periodic-interval picker.
 function MinutesSelect({
@@ -182,15 +184,26 @@ export function PowerSection() {
             disabled={saving}
           />
           {settings.syncTrigger === SyncTrigger.OnChangePoll && (
-            <div className="ml-7 flex items-center gap-2">
-              <label className="text-xs text-slate-500">Check every</label>
-              <MinutesSelect
-                options={PERIODIC_OPTIONS}
-                value={settings.periodicMinutes}
-                onChange={(periodicMinutes) => persist({ ...settings, periodicMinutes })}
-                disabled={saving}
-              />
-              <span className="text-xs text-slate-400">(approximate, ±15 min)</span>
+            <div className="ml-7 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-500">Check for changes every</label>
+                <MinutesSelect
+                  options={POLL_OPTIONS}
+                  value={settings.onChangePollMinutes}
+                  onChange={(onChangePollMinutes) => persist({ ...settings, onChangePollMinutes })}
+                  disabled={saving}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-500">Also sync at least every</label>
+                <MinutesSelect
+                  options={PERIODIC_OPTIONS}
+                  value={settings.periodicMinutes}
+                  onChange={(periodicMinutes) => persist({ ...settings, periodicMinutes })}
+                  disabled={saving}
+                />
+                <span className="text-xs text-slate-400">to receive changes from peers</span>
+              </div>
             </div>
           )}
           <Radio

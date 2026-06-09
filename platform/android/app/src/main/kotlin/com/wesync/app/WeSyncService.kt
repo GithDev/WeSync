@@ -130,7 +130,8 @@ class WeSyncService : Service(), mobile.PowerHost {
         }
 
         when (intent?.action) {
-            TriggerReceiver.ACTION_REARM -> power?.reapply()
+            TriggerReceiver.ACTION_REARM -> power?.rearmSafetyAlarm()
+            TriggerReceiver.ACTION_REARM_POLL -> power?.rearmPollAlarm()
             ACTION_REFRESH_NETWORK -> power?.refreshNetwork()
             ACTION_CANCEL_SHUTDOWN -> {
                 main.removeCallbacks(shutdownRunnable)

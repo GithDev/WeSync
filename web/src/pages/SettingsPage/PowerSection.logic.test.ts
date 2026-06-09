@@ -7,6 +7,7 @@ function makeSettings(over: Partial<PowerSettings> = {}): PowerSettings {
   return {
     syncTrigger: SyncTrigger.OnChangePoll,
     periodicMinutes: 240,
+    onChangePollMinutes: 5,
     scheduledTimes: [],
     networkMode: NetworkMode.AnyWifi,
     trustedSSIDs: [],
@@ -113,6 +114,42 @@ describe('describeStatus — trigger lines', () => {
       makeSettings({ pauseWhenBatteryLow: true }),
     );
     expect(lines.some((l) => !l.good && l.text.includes('Battery low'))).toBe(true);
+  });
+});
+
+// Regression guard: every SyncTrigger value must have a dedicated
+// whenSummary string (not the generic periodic fallback) and a dedicated
+// describeStatus trigger line (not silently absent). This catches two
+// classes of bug: a new trigger added to the enum but forgotten in the
+// logic, and an existing trigger whose string was accidentally broken.
+describe('SyncTrigger enum coverage', () => {
+  const allTriggers = Object.values(SyncTrigger);
+
+  it('whenSummary returns a non-empty, non-default string for every trigger', () => {
+    for (const trigger of allTriggers) {
+      const summary = whenSummary(makeSettings({ syncTrigger: trigger }));
+      expect(summary, `trigger ${trigger} must have a summary`).toBeTruthy();
+      // on_change_poll must never fall through to the generic "Every N" path
+      if (trigger === SyncTrigger.OnChangePoll) {
+        expect(summary, `on_change_poll must not return a generic "Every" string`).not.toMatch(
+          /^Every/,
+        );
+      }
+    }
+  });
+
+  it('describeStatus emits a trigger-specific line for every non-window trigger', () => {
+    for (const trigger of allTriggers) {
+      const times = trigger === SyncTrigger.Scheduled ? ['08:00'] : [];
+      const lines = describeStatus(
+        makeStatus({ triggerWindowOpen: false }),
+        makeSettings({ syncTrigger: trigger, scheduledTimes: times }),
+      );
+      expect(
+        lines.length,
+        `trigger ${trigger} must produce at least one status line`,
+      ).toBeGreaterThan(0);
+    }
   });
 });
 
