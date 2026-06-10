@@ -18,36 +18,18 @@ import mobile.Mobile
 // so the two alarms are independent and don't reset each other's countdown.
 class TriggerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        when (intent?.action) {
-            ACTION_FIRE -> {
-                Log.i(TAG, "safety-net alarm fired")
-                try {
-                    Mobile.onTriggerAlarm()
-                } catch (t: Throwable) {
-                    Log.w(TAG, "Mobile.onTriggerAlarm failed", t)
-                }
-                rearmService(context, ACTION_REARM)
-            }
-            ACTION_FIRE_POLL -> {
-                Log.i(TAG, "poll alarm fired")
-                try {
-                    Mobile.onTriggerPollAlarm()
-                } catch (t: Throwable) {
-                    Log.w(TAG, "Mobile.onTriggerPollAlarm failed", t)
-                }
-                rearmService(context, ACTION_REARM_POLL)
-            }
-        }
-    }
-
-    private fun rearmService(context: Context, rearmAction: String) {
-        // Use startForegroundService: we're woken in the background, where a
-        // plain startService is rejected on API 26+ outside the alarm's allowlist.
+        val action = intent?.action ?: return
+        if (action != ACTION_FIRE && action != ACTION_FIRE_POLL) return
+        // Hand off to WeSyncService so Mobile.onTrigger*Alarm() is called after
+        // the Go backend is running. Calling Mobile.* directly here fails
+        // silently when the service (and backend) have self-stopped between alarms.
+        Log.i(TAG, "alarm received: $action — dispatching to service")
         try {
-            val svc = Intent(context, WeSyncService::class.java).setAction(rearmAction)
-            context.startForegroundService(svc)
+            context.startForegroundService(
+                Intent(context, WeSyncService::class.java).setAction(action)
+            )
         } catch (t: Throwable) {
-            Log.w(TAG, "re-arm dispatch failed for $rearmAction", t)
+            Log.w(TAG, "dispatch failed for $action", t)
         }
     }
 

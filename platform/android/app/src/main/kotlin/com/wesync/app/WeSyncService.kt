@@ -130,6 +130,29 @@ class WeSyncService : Service(), mobile.PowerHost {
         }
 
         when (intent?.action) {
+            TriggerReceiver.ACTION_FIRE -> {
+                // Backend is now running (startBackendIfReady above). Do the
+                // trigger work here, not in TriggerReceiver, so Mobile.* is
+                // never called against a stopped backend.
+                try {
+                    Mobile.onTriggerAlarm()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "onTriggerAlarm failed", t)
+                }
+                power?.rearmSafetyAlarm()
+                main.removeCallbacks(shutdownRunnable)
+                main.postDelayed(shutdownRunnable, WINDOW_GRACE_MS)
+            }
+            TriggerReceiver.ACTION_FIRE_POLL -> {
+                try {
+                    Mobile.onTriggerPollAlarm()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "onTriggerPollAlarm failed", t)
+                }
+                power?.rearmPollAlarm()
+                main.removeCallbacks(shutdownRunnable)
+                main.postDelayed(shutdownRunnable, WINDOW_GRACE_MS)
+            }
             TriggerReceiver.ACTION_REARM -> power?.rearmSafetyAlarm()
             TriggerReceiver.ACTION_REARM_POLL -> power?.rearmPollAlarm()
             ACTION_REFRESH_NETWORK -> power?.refreshNetwork()
