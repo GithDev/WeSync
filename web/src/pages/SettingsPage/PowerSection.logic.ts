@@ -46,10 +46,6 @@ export function describeStatus(s: PowerStatus | null, settings: PowerSettings): 
     }
   }
 
-  if (settings.keepSyncingWhileCharging && s.charging) {
-    lines.push({ good: true, text: 'Charging — syncing continuously' });
-  }
-
   if (settings.pauseWhenBatteryLow) {
     lines.push(
       s.batteryLow

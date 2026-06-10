@@ -12,7 +12,6 @@ export interface PowerSettings {
   networkMode: NetworkMode;
   trustedSSIDs: string[];
   pauseWhenBatteryLow: boolean;
-  keepSyncingWhileCharging: boolean;
   blockMeteredRoaming: boolean;
 }
 

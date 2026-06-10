@@ -142,11 +142,7 @@ func OnTriggerAlarm() {
 	snap := g.snapshotLocked()
 	g.mu.Unlock()
 
-	// Global power gate. Network is absolute; charging overrides battery but not
-	// network — mirrors desiredRunning's precedence exactly. No trigger mode
-	// should scan or open a session when ST would immediately be gated off.
-	chargingOverride := snap.charging && snap.settings.KeepSyncingWhileCharging
-	if !snap.networkAllowed() || (!snap.batteryAllowed() && !chargingOverride) {
+	if !snap.networkAllowed() || !snap.batteryAllowed() {
 		g.emitEvent("tick", "conditions not met; alarm ignored")
 		return
 	}
@@ -171,8 +167,7 @@ func OnTriggerPollAlarm() {
 	snap := g.snapshotLocked()
 	g.mu.Unlock()
 
-	chargingOverride := snap.charging && snap.settings.KeepSyncingWhileCharging
-	if !snap.networkAllowed() || (!snap.batteryAllowed() && !chargingOverride) {
+	if !snap.networkAllowed() || !snap.batteryAllowed() {
 		g.emitEvent("tick", "poll: conditions not met; skipped")
 		return
 	}

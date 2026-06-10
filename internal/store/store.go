@@ -129,9 +129,8 @@ type PowerSettings struct {
 	ScheduledTimes           []string `json:"scheduledTimes"`           // "HH:MM" entries, when SyncTrigger == "scheduled"
 	NetworkMode              string   `json:"networkMode"`              // trusted_wifi | any_wifi | any
 	TrustedSSIDs             []string `json:"trustedSSIDs"`             // SSIDs that count as trusted when NetworkMode == "trusted_wifi"
-	PauseWhenBatteryLow      bool     `json:"pauseWhenBatteryLow"`      // pause when the battery is low (Android low-battery warning level)
-	KeepSyncingWhileCharging bool     `json:"keepSyncingWhileCharging"` // run continuously while plugged in
-	BlockMeteredRoaming      bool     `json:"blockMeteredRoaming"`      // don't sync on roaming or metered WiFi (ordinary metered cellular still syncs)
+	PauseWhenBatteryLow bool   `json:"pauseWhenBatteryLow"` // pause when the battery is low (Android low-battery warning level)
+	BlockMeteredRoaming bool   `json:"blockMeteredRoaming"` // don't sync on roaming or metered WiFi (ordinary metered cellular still syncs)
 }
 
 func (s *Store) GetPowerSettings() (PowerSettings, error) {
@@ -144,9 +143,8 @@ func (s *Store) GetPowerSettings() (PowerSettings, error) {
 		PeriodicMinutes:          cfg.PowerPeriodicMinutes,
 		OnChangePollMinutes:      cfg.PowerOnChangePollMinutes,
 		NetworkMode:              cfg.PowerNetworkMode,
-		PauseWhenBatteryLow:      cfg.PowerPauseWhenBatteryLow,
-		KeepSyncingWhileCharging: cfg.PowerKeepSyncingWhileCharging,
-		BlockMeteredRoaming:      cfg.PowerBlockMeteredRoaming,
+		PauseWhenBatteryLow: cfg.PowerPauseWhenBatteryLow,
+		BlockMeteredRoaming: cfg.PowerBlockMeteredRoaming,
 	}
 	_ = jsonUnmarshalStrings(cfg.PowerScheduledTimes, &p.ScheduledTimes)
 	_ = jsonUnmarshalStrings(cfg.PowerTrustedSSIDs, &p.TrustedSSIDs)
@@ -185,8 +183,7 @@ func (s *Store) SetPowerSettings(p PowerSettings) error {
 		"power_scheduled_times":             scheduledJSON,
 		"power_network_mode":                p.NetworkMode,
 		"power_trusted_ssids":               ssidsJSON,
-		"power_pause_on_saver":              p.PauseWhenBatteryLow,
-		"power_keep_syncing_while_charging": p.KeepSyncingWhileCharging,
-		"power_block_metered_roaming":       p.BlockMeteredRoaming,
+		"power_pause_on_saver":        p.PauseWhenBatteryLow,
+		"power_block_metered_roaming": p.BlockMeteredRoaming,
 	}).Error
 }

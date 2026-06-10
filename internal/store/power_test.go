@@ -12,15 +12,14 @@ func TestPowerSettings_Defaults(t *testing.T) {
 		t.Fatalf("GetPowerSettings: %v", err)
 	}
 	want := PowerSettings{
-		SyncTrigger:              "on_change_poll",
-		PeriodicMinutes:          240,
-		OnChangePollMinutes:      30,
-		ScheduledTimes:           []string{},
-		NetworkMode:              "any_wifi",
-		TrustedSSIDs:             []string{},
-		PauseWhenBatteryLow:      true,
-		KeepSyncingWhileCharging: false, // opt-in power trade-off; default off
-		BlockMeteredRoaming:      true,
+		SyncTrigger:         "on_change_poll",
+		PeriodicMinutes:     240,
+		OnChangePollMinutes: 30,
+		ScheduledTimes:      []string{},
+		NetworkMode:         "any_wifi",
+		TrustedSSIDs:        []string{},
+		PauseWhenBatteryLow: true,
+		BlockMeteredRoaming: true,
 	}
 	if !reflect.DeepEqual(p, want) {
 		t.Errorf("defaults mismatch\n got:  %+v\n want: %+v", p, want)

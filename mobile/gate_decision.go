@@ -63,12 +63,6 @@ func (s snapshot) desiredRunning(now time.Time) bool {
 	if !s.networkAllowed() {
 		return false
 	}
-	// Charging is a modifier, not a mode: plugged in → battery is no concern →
-	// run continuously regardless of the trigger or low-battery gate. This is
-	// what makes "fast backup, never worry about battery" work.
-	if s.charging && s.settings.KeepSyncingWhileCharging {
-		return true
-	}
 	// On battery: respect the low-battery gate.
 	if !s.batteryAllowed() {
 		return false

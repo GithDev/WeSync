@@ -28,7 +28,6 @@ const DEFAULTS: PowerSettings = {
   networkMode: NetworkMode.AnyWifi,
   trustedSSIDs: [],
   pauseWhenBatteryLow: true,
-  keepSyncingWhileCharging: false,
   blockMeteredRoaming: true,
 };
 
@@ -72,7 +71,6 @@ function whereSummary(s: PowerSettings): string {
 function batterySummary(s: PowerSettings): string {
   const on = [
     s.pauseWhenBatteryLow && 'Pause when low',
-    s.keepSyncingWhileCharging && 'Keep charging',
     s.blockMeteredRoaming && 'Skip metered',
   ].filter(Boolean);
   return on.length ? on.join(' · ') : 'All off';
@@ -328,13 +326,6 @@ export function PowerSection() {
             description="Stop syncing once the battery drops to the level where your phone warns you it's low."
             checked={settings.pauseWhenBatteryLow}
             onChange={(v) => persist({ ...settings, pauseWhenBatteryLow: v })}
-            disabled={saving}
-          />
-          <ToggleLine
-            title="Keep syncing while charging"
-            description="When plugged in, sync continuously — battery isn't a concern. Your schedule applies again on battery."
-            checked={settings.keepSyncingWhileCharging}
-            onChange={(v) => persist({ ...settings, keepSyncingWhileCharging: v })}
             disabled={saving}
           />
           <ToggleLine

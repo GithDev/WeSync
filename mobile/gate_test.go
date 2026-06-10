@@ -375,28 +375,19 @@ func TestShouldStayResident(t *testing.T) {
 		g.sessionEndsAt = time.Time{}
 		g.foregroundUntil = time.Time{}
 		g.settings = store.PowerSettings{
-			SyncTrigger:              "periodic", // window-gated; closed here
-			NetworkMode:              "any",
-			KeepSyncingWhileCharging: true,
-			BlockMeteredRoaming:      true,
+			SyncTrigger:         "periodic", // window-gated; closed here
+			NetworkMode:         "any",
+			BlockMeteredRoaming: true,
 		}
 		mutate()
 		g.mu.Unlock()
 	}
 	t.Cleanup(func() { g.markStopped() })
 
-	// Backgrounded, periodic, no open window, not charging → nothing to keep us
-	// up. The service may self-stop.
+	// Backgrounded, periodic, no open window → nothing to keep us up.
 	set(func() {})
 	if ShouldStayResident() {
 		t.Errorf("idle periodic background: should NOT stay resident")
-	}
-
-	// Same, but plugged in: the gate wants ST up, so the service must stay alive.
-	// This is the bug the fix addresses.
-	set(func() { g.charging = true })
-	if !ShouldStayResident() {
-		t.Errorf("charging + KeepSyncingWhileCharging: should stay resident")
 	}
 
 	// An open sync session keeps us alive (an in-flight sync mustn't be torn down).
@@ -412,46 +403,6 @@ func TestShouldStayResident(t *testing.T) {
 	set(func() { g.appForeground = true })
 	if ShouldStayResident() {
 		t.Errorf("stuck foreground flag must not keep the service resident")
-	}
-}
-
-func TestDesiredRunning_ChargingModifier(t *testing.T) {
-	mk := func() snapshot {
-		s := newSnap(store.PowerSettings{
-			SyncTrigger:              "scheduled", // window-gated; closed by default
-			NetworkMode:              "any",
-			PauseWhenBatteryLow:      true,
-			KeepSyncingWhileCharging: true,
-			BlockMeteredRoaming:      true,
-		})
-		s.appForeground = false
-		return s
-	}
-
-	// Charging + KeepSyncingWhileCharging → runs continuously even with the
-	// trigger window closed and battery low on.
-	s := mk()
-	s.charging = true
-	s.batteryLow = true
-	if !s.desiredRunning(time.Now()) {
-		t.Errorf("charging modifier should run ST regardless of trigger/saver")
-	}
-
-	// Charging but feature off → falls back to the trigger (window closed → off).
-	s = mk()
-	s.settings.KeepSyncingWhileCharging = false
-	s.charging = true
-	if s.desiredRunning(time.Now()) {
-		t.Errorf("KeepSyncingWhileCharging=false: charging should not force-run")
-	}
-
-	// Charging must NOT bypass the network gate. Use a roaming link — a
-	// genuinely cost-blocked network (plain metered cellular is allowed now).
-	s = mk()
-	s.charging = true
-	s.roaming = true
-	if s.desiredRunning(time.Now()) {
-		t.Errorf("charging must not bypass the network/roaming gate")
 	}
 }
 

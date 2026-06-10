@@ -135,7 +135,6 @@ func setGateForAlarmTest(t *testing.T, mutate func()) {
 		SyncTrigger:              "on_change_poll",
 		NetworkMode:              "any",
 		PauseWhenBatteryLow:      true,
-		KeepSyncingWhileCharging: false,
 		BlockMeteredRoaming:      true,
 	}
 	mutate()
@@ -181,17 +180,3 @@ func TestOnTriggerAlarm_PowerGate_BatteryLow(t *testing.T) {
 	}
 }
 
-func TestOnTriggerAlarm_PowerGate_NetworkFails_EvenWhenCharging(t *testing.T) {
-	// Charging overrides the battery gate but NOT the network gate.
-	// Even with KeepSyncingWhileCharging=true, no-wifi must still block the scan.
-	setGateForAlarmTest(t, func() {
-		g.settings.NetworkMode = "any_wifi"
-		g.hasWifi = false
-		g.charging = true
-		g.settings.KeepSyncingWhileCharging = true
-	})
-	OnTriggerAlarm()
-	if pollDirs() != nil {
-		t.Error("network gate must block scan even when charging; poll.dirs must stay nil")
-	}
-}
