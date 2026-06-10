@@ -109,7 +109,6 @@ class PowerController(private val ctx: Context) {
         }
         networkCallback = null
         liveNetworkCaps.clear()
-        cancelAlarms()
         reapplyExecutor.shutdownNow()
     }
 
@@ -488,15 +487,42 @@ class PowerController(private val ctx: Context) {
     }
 
     // Re-arm only the safety-net alarm (called after ACTION_FIRE fires).
+    // If the mode no longer uses a safety alarm (e.g. a stale alarm fired after
+    // the user switched modes while the service was dead), cancel it instead of
+    // re-arming — same logic as rearmPollAlarm's mode guard.
     fun rearmSafetyAlarm() {
         val plan = fetchWakePlan() ?: return
+        if (plan.mode != "periodic" && plan.mode != "on_change_poll") {
+            alarmManager.cancel(safetyPendingIntent())
+            try {
+                Mobile.logPowerEvent("rearm", "safety alarm cancelled — mode is now ${plan.mode}")
+            } catch (_: Throwable) {}
+            return
+        }
         armSafetyAlarm(plan)
+        try {
+            Mobile.logPowerEvent("rearm", "safety alarm rearmed (every ${plan.periodicMinutes} min)")
+        } catch (_: Throwable) {}
     }
 
     // Re-arm only the fast poll alarm (called after ACTION_FIRE_POLL fires).
+    // If the mode has changed away from on_change_poll (e.g. a stale alarm
+    // fired after the user switched modes while the service was dead), cancel
+    // the poll alarm instead of re-arming it — otherwise onChangePollMinutes
+    // from the old settings would schedule an indefinite polling loop.
     fun rearmPollAlarm() {
         val plan = fetchWakePlan() ?: return
+        if (plan.mode != "on_change_poll") {
+            alarmManager.cancel(pollPendingIntent())
+            try {
+                Mobile.logPowerEvent("rearm", "poll alarm cancelled — mode is now ${plan.mode}")
+            } catch (_: Throwable) {}
+            return
+        }
         armPollAlarm(plan)
+        try {
+            Mobile.logPowerEvent("rearm", "poll alarm rearmed (every ${plan.onChangePollMinutes} min)")
+        } catch (_: Throwable) {}
     }
 
     private fun armSafetyAlarm(p: WakePlan) {

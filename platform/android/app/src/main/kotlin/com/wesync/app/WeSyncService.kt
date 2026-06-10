@@ -316,6 +316,9 @@ class WeSyncService : Service(), mobile.PowerHost {
 
     override fun onDestroy() {
         Log.i(TAG, "service stopping — tearing down backend")
+        try {
+            Mobile.logPowerEvent("stop", "service stopping — alarms persist for next wake")
+        } catch (_: Throwable) {}
         main.removeCallbacks(shutdownRunnable)
         try {
             Mobile.setPowerHost(null)
