@@ -130,26 +130,30 @@ class WeSyncService : Service(), mobile.PowerHost {
         }
 
         when (intent?.action) {
-            TriggerReceiver.ACTION_FIRE -> {
-                // Backend is now running (startBackendIfReady above). Do the
-                // trigger work here, not in TriggerReceiver, so Mobile.* is
-                // never called against a stopped backend.
-                try {
-                    Mobile.onTriggerAlarm()
-                } catch (t: Throwable) {
-                    Log.w(TAG, "onTriggerAlarm failed", t)
+            TriggerReceiver.ACTION_FIRE, TriggerReceiver.ACTION_FIRE_POLL -> {
+                // Ensure power listeners are registered and Go has current
+                // network + battery state before we ask it to evaluate
+                // conditions. Without this, a fresh process start from a
+                // FIRE wake-up would have no network state and silently skip.
+                if (!powerStarted) {
+                    powerStarted = true
+                    power?.start()
                 }
-                power?.rearmSafetyAlarm()
-                main.removeCallbacks(shutdownRunnable)
-                main.postDelayed(shutdownRunnable, WINDOW_GRACE_MS)
-            }
-            TriggerReceiver.ACTION_FIRE_POLL -> {
-                try {
-                    Mobile.onTriggerPollAlarm()
-                } catch (t: Throwable) {
-                    Log.w(TAG, "onTriggerPollAlarm failed", t)
+                if (intent?.action == TriggerReceiver.ACTION_FIRE) {
+                    try {
+                        Mobile.onTriggerAlarm()
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "onTriggerAlarm failed", t)
+                    }
+                    power?.rearmSafetyAlarm()
+                } else {
+                    try {
+                        Mobile.onTriggerPollAlarm()
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "onTriggerPollAlarm failed", t)
+                    }
+                    power?.rearmPollAlarm()
                 }
-                power?.rearmPollAlarm()
                 main.removeCallbacks(shutdownRunnable)
                 main.postDelayed(shutdownRunnable, WINDOW_GRACE_MS)
             }

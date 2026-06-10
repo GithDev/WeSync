@@ -69,11 +69,20 @@ class PowerController(private val ctx: Context) {
     fun start() {
         registerLowBatteryReceiver()
         registerChargingReceiver()
+        // registerNetworkCallback seeds liveNetworkCaps synchronously from
+        // allNetworks, so currentNetworkState() is immediately accurate.
         registerNetworkCallback()
-        // Push the initial low-battery + charging state so the gate doesn't
-        // assume "off" if either actually started active.
-        Mobile.onBatteryLow(isBatteryLow())
-        Mobile.onChargingState(isCharging())
+        // Push the initial network + battery state synchronously so Go has
+        // real values before the first onTrigger*Alarm call. Without this,
+        // a fresh process start from an alarm wake-up would have empty network
+        // state and silently skip any poll that checks networkAllowed().
+        val net = currentNetworkState()
+        try {
+            Mobile.onNetworkState(net.ssid, net.hasWifi, net.hasMobile, net.metered, net.roaming, net.activeWifi)
+        } catch (_: Throwable) {
+        }
+        try { Mobile.onBatteryLow(isBatteryLow()) } catch (_: Throwable) {}
+        try { Mobile.onChargingState(isCharging()) } catch (_: Throwable) {}
         reapply()
     }
 
