@@ -553,5 +553,34 @@ class PowerController(private val ctx: Context) {
         private const val TAG = "WeSync.PowerCtl"
         private const val PI_REQUEST_TRIGGER = 1100
         private const val PI_REQUEST_POLL = 1101
+
+        // Delay before the boot-kick alarm fires. A few seconds out so it lands
+        // after the network stack has settled post-reboot, but soon enough that
+        // background sync resumes promptly.
+        private const val BOOT_KICK_DELAY_MS = 15_000L
+
+        // Arm a single near-term poll alarm from a context that has no running
+        // gate yet (BootReceiver). We deliberately don't rely on starting the
+        // service directly from BOOT_COMPLETED: on Android 14+ a dataSync
+        // foreground service can't be launched from that broadcast. The poll
+        // alarm's TriggerReceiver→startForegroundService instead runs under the
+        // alarm FGS-start exemption, which has no per-type exclusion. Uses the
+        // SAME PendingIntent (action + request code) as the live poll alarm so a
+        // direct service start that DID succeed cleanly supersedes this via
+        // cancelAlarms() in the service's reapply().
+        fun scheduleBootKick(ctx: Context) {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(ctx, TriggerReceiver::class.java)
+                .setAction(TriggerReceiver.ACTION_FIRE_POLL)
+            val pi = PendingIntent.getBroadcast(
+                ctx,
+                PI_REQUEST_POLL,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val fireAt = System.currentTimeMillis() + BOOT_KICK_DELAY_MS
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pi)
+            Log.i(TAG, "boot kick alarm armed for ${java.util.Date(fireAt)}")
+        }
     }
 }
