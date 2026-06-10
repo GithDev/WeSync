@@ -31,6 +31,7 @@ import {
   waitForPeer,
   waitForDevice,
   waitForFolderDevice,
+  forceBEPAddress,
   cleanAll,
   stURL,
   stHome,
@@ -157,6 +158,14 @@ test.describe.serial('BEP reconnect via pause/resume', () => {
         { timeout: 60_000, intervals: [2000] },
       )
       .toBe(true);
+
+    // Patch explicit BEP addresses before folder operations so ST connects fast
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idB, 1),
+      forceBEPAddress(pageB, 1, idA, 0),
+      forceBEPAddress(pageB, 1, idC, 2),
+      forceBEPAddress(pageC, 2, idB, 1),
+    ]);
 
     // B shares folder with A
     await shareFolder(pageB, DEVICE_B, FOLDER_B_PATH, 'BEP Test', 'sendreceive', idA);

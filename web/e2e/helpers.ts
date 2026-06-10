@@ -140,6 +140,32 @@ export async function restartAllSyncthing(_page?: Page): Promise<void> {
   );
 }
 
+/**
+ * Patches one ST instance's device config to use an explicit TCP address for
+ * another ST instance on the same machine. Call after pairing to make BEP
+ * connect immediately — dynamic/mDNS discovery on loopback is unreliable in
+ * same-machine dev/test setups, causing BEP to take 20-60 seconds to connect
+ * instead of the < 2 seconds an explicit address provides.
+ *
+ * @param page      Any Playwright Page (used only for its request context)
+ * @param ownerIdx  ST instance whose config to patch: 0=A, 1=B, 2=C
+ * @param deviceID  The remote device's ST device ID (from getStatus.myID)
+ * @param remoteIdx ST index of the remote device: 0=A, 1=B, 2=C
+ */
+export async function forceBEPAddress(
+  page: Page,
+  ownerIdx: number,
+  deviceID: string,
+  remoteIdx: number,
+): Promise<void> {
+  const { url, key } = ST_INSTANCES[ownerIdx];
+  if (!key) return;
+  await page.request.patch(`${url}/rest/config/devices/${deviceID}`, {
+    headers: { 'X-API-Key': key },
+    data: { addresses: [`tcp://127.0.0.1:${stSyncPort(remoteIdx)}`, 'dynamic'] },
+  });
+}
+
 // â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface Folder {

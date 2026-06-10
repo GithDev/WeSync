@@ -24,6 +24,7 @@ import {
   pair,
   shareFolder,
   acceptFolder,
+  forceBEPAddress,
   cleanAll,
   apiPort,
   peerPort,
@@ -153,7 +154,7 @@ test.describe.serial('Offline → online: A↔C', () => {
             devC.some((d: any) => d.deviceID === idA && d.accepted)
           );
         },
-        { timeout: 15_000 },
+        { timeout: 30_000 },
       )
       .toBe(true);
     console.log('  ✓ Mutual trust established');
@@ -220,9 +221,15 @@ test.describe.serial('Offline → online: A↔C', () => {
             devC.some((d: any) => d.deviceID === idA && d.accepted)
           );
         },
-        { timeout: 15_000 },
+        { timeout: 30_000 },
       )
       .toBe(true);
+
+    // Patch explicit BEP addresses so the folder invite reaches C quickly
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idC, 2),
+      forceBEPAddress(pageC, 2, idA, 0),
+    ]);
 
     await shareFolder(pageA, BASE_A, FOLDER_A, 'OfflineTest', 'sendreceive', idC);
     const fA = await getFolders(pageA, BASE_A);

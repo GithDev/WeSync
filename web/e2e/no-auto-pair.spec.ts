@@ -21,6 +21,7 @@ import {
   acceptFolder,
   waitForPeer,
   waitForFolderDevice,
+  forceBEPAddress,
   cleanAll,
 } from './helpers';
 
@@ -114,6 +115,16 @@ test.describe.serial('No auto-pairing via MESH', () => {
     const [dA, dC] = await Promise.all([getDevices(pageA, DEVICE_A), getDevices(pageC, DEVICE_C)]);
     expect(dA.some((d) => d.deviceID === idC)).toBe(false);
     expect(dC.some((d) => d.deviceID === idA)).toBe(false);
+
+    // Patch explicit BEP addresses so ST can connect on loopback immediately.
+    // Without this, mDNS dynamic discovery takes 20-60s on a same-machine setup,
+    // causing folder invite and Introducer waits to time out.
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idB, 1),
+      forceBEPAddress(pageB, 1, idA, 0),
+      forceBEPAddress(pageB, 1, idC, 2),
+      forceBEPAddress(pageC, 2, idB, 1),
+    ]);
 
     console.log('✓ A↔B and B↔C paired; A and C are NOT paired');
   });

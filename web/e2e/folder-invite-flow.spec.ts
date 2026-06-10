@@ -17,6 +17,7 @@ import {
   pair,
   shareFolder,
   acceptFolder,
+  forceBEPAddress,
   cleanAll,
 } from './helpers';
 import path from 'path';
@@ -88,6 +89,13 @@ test.describe.serial('Folder invite flow: A↔C', () => {
         { timeout: 15_000, intervals: [500] },
       )
       .toBe(true);
+
+    // Patch explicit BEP addresses so folder invites arrive quickly.
+    // The 15s timeout in step 1 is too short for mDNS on loopback.
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idC, 2),
+      forceBEPAddress(pageC, 2, idA, 0),
+    ]);
 
     console.log(`A=${idA.slice(0, 7)}  C=${idC.slice(0, 7)}  — mutual trust confirmed`);
   });

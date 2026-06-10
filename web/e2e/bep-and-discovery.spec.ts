@@ -30,6 +30,7 @@ import {
   setName,
   waitForPeerName,
   waitForDevice,
+  forceBEPAddress,
   cleanAll,
 } from './helpers';
 
@@ -134,6 +135,14 @@ test.describe.serial('BEP connectivity and wire-over-UDP priority', () => {
         { timeout: 30_000, intervals: [2000] },
       )
       .toBe(true);
+
+    // Patch explicit BEP addresses so ST connects on loopback fast enough for
+    // the investigation queries below to observe a live BEP connection.
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idB, 1),
+      forceBEPAddress(pageB, 1, idA, 0),
+    ]);
+    await new Promise((r) => setTimeout(r, 3000)); // let BEP connect
 
     // Query ST1 directly: what addresses does it have for ST2?
     const st1Config = await stGet(pageA, ST1, ST1_KEY, `/rest/config/devices/${idB}`);

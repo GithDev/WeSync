@@ -35,6 +35,7 @@ import {
   waitForDeviceGoneFromFolder,
   getPendingFolders,
   waitForDeviceAccepted,
+  forceBEPAddress,
   restartAllSyncthing,
   cleanAll,
 } from './helpers';
@@ -260,6 +261,15 @@ test.describe.serial('Folder mesh', () => {
         { message: 'pairing B↔C', timeout: 60_000, intervals: [3000] },
       )
       .toBe(true);
+
+    // Patch explicit BEP addresses for B↔C so C sees B's folder offer quickly,
+    // and for A↔B so A can learn about C via B's ClusterConfig (Introducer).
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idB, 1),
+      forceBEPAddress(pageB, 1, idA, 0),
+      forceBEPAddress(pageB, 1, idC, 2),
+      forceBEPAddress(pageC, 2, idB, 1),
+    ]);
 
     // B adds C to folder — this also broadcasts state to A, so A learns about C
     const foldersOnB = await getFolders(pageB, DEVICE_B);

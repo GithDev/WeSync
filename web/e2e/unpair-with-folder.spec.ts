@@ -34,6 +34,7 @@ import {
   waitForDeviceGoneFromFolder,
   waitForFolderGone,
   getPendingFolders,
+  forceBEPAddress,
   restartAllSyncthing,
   cleanAll,
 } from './helpers';
@@ -156,6 +157,14 @@ test.describe.serial('Unpair with shared folder', () => {
   });
 
   test('2. A shares folder with B, B shares with C', async () => {
+    // Patch explicit BEP addresses so folder invites propagate quickly on loopback
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idB, 1),
+      forceBEPAddress(pageB, 1, idA, 0),
+      forceBEPAddress(pageB, 1, idC, 2),
+      forceBEPAddress(pageC, 2, idB, 1),
+    ]);
+
     folderID = await shareFolder(pageA, DEVICE_A, FOLDER_A_PATH, 'Shared', 'sendreceive', idB);
     expect(folderID).toBeTruthy();
 

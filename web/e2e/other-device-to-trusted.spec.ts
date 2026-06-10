@@ -24,6 +24,7 @@ import {
   acceptFolder,
   waitForPeer,
   waitForFolderDevice,
+  forceBEPAddress,
   cleanAll,
 } from './helpers';
 
@@ -116,6 +117,15 @@ test.describe.serial('Other device → trusted member', () => {
   });
 
   test('2. B creates folder, C accepts, C adds A → ST Introducer auto-trusts A on B', async () => {
+    // Patch explicit BEP addresses so Introducer (C introduces A to B) works
+    // within the test timeout — mDNS on loopback takes too long.
+    await Promise.all([
+      forceBEPAddress(pageB, 1, idC, 2),
+      forceBEPAddress(pageC, 2, idB, 1),
+      forceBEPAddress(pageC, 2, idA, 0),
+      forceBEPAddress(pageA, 0, idC, 2),
+    ]);
+
     await shareFolder(pageB, DEVICE_B, FOLDER_B_PATH, 'MESH Test', 'sendreceive', idC);
     const fB = await getFolders(pageB, DEVICE_B);
     folderID = fB.find((f) => f.label === 'MESH Test')?.id ?? '';

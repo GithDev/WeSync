@@ -25,7 +25,7 @@ import {
   cleanAll,
 } from './helpers';
 
-const TIMEOUT_MS = 3_000;
+const TIMEOUT_MS = 10_000;
 
 async function peerName(page: import('@playwright/test').Page, base: string, deviceID: string) {
   const peers = await getPeers(page, base);

@@ -32,6 +32,7 @@ import {
   waitForFolderDevice,
   waitForDeviceGoneFromFolder,
   waitForFolderGone,
+  forceBEPAddress,
   restartAllSyncthing,
   cleanAll,
 } from './helpers';
@@ -541,6 +542,15 @@ test.describe.serial('Device removal cleanup', () => {
         { timeout: 60_000, intervals: [3000] },
       )
       .toBe(true);
+
+    // Patch explicit BEP addresses so ST connects on loopback fast enough for
+    // folder invites and Introducer to work within their timeouts.
+    await Promise.all([
+      forceBEPAddress(pageA, 0, idB, 1),
+      forceBEPAddress(pageB, 1, idA, 0),
+      forceBEPAddress(pageB, 1, idC, 2),
+      forceBEPAddress(pageC, 2, idB, 1),
+    ]);
 
     // A shares folder with B; B then adds C
     await shareFolder(pageA, DEVICE_A, FOLDER_A_PATH, 'Ghost Test', 'sendreceive', idB);
