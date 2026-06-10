@@ -56,6 +56,7 @@ help:
 	@echo "  make linux-pkg       Windows-like .deb + .rpm -> dist/linux/  (autostart at login, clean uninstall)"
 	@echo "  make linux-flatpak   (legacy) Flatpak bundle -> dist/linux/wesync-<ver>.flatpak"
 	@echo "  make windows         Full Windows installer (svc+GUI+syncthing+NSIS) -> dist/windows/WeSync-<ver>-setup.exe"
+	@echo "  make windows-signed  Same as windows but Authenticode-signed (needs WINDOWS_CERT_PFX + WINDOWS_CERT_PASSWORD)"
 	@echo "  make android         Debug APK                     -> dist/android/  (uses platform/android image)"
 	@echo "  make android-release Signed release APK           -> dist/android/wesync-release.apk  (needs KEYSTORE_* env vars)"
 	@echo "  make all             ALL installables: web + flatpak + .deb/.rpm + Windows installer + APK"
@@ -131,6 +132,19 @@ windows: image-linux
 	$(PODMAN) run --rm \
 		-v "$(ROOT):/src" -v "$(DIST)/windows:/out" $(GO_CACHE) \
 		-e WESYNC_VERSION=$(VERSION) \
+		$(IMAGE_LINUX) windows
+
+# Signed Windows installer. Requires WINDOWS_CERT_PFX (host path to a .pfx file)
+# and WINDOWS_CERT_PASSWORD to be set in the environment (CI injects from secrets).
+.PHONY: windows-signed
+windows-signed: image-linux
+	@mkdir -p "$(DIST)/windows"
+	$(PODMAN) run --rm \
+		-v "$(ROOT):/src" -v "$(DIST)/windows:/out" $(GO_CACHE) \
+		-v "$(WINDOWS_CERT_PFX):/cert.pfx:ro" \
+		-e WESYNC_VERSION=$(VERSION) \
+		-e WINDOWS_CERT_PFX=/cert.pfx \
+		-e WINDOWS_CERT_PASSWORD \
 		$(IMAGE_LINUX) windows
 
 # ── android (refresh embedded web, then existing android image) ──────────────

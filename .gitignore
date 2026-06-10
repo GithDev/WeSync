@@ -40,10 +40,13 @@ platform/android/app/libs/*.aar
 platform/android/app/libs/*.jar
 
 # Release signing — NEVER commit keystores or their passwords. The release key
-# is injected via env vars (KEYSTORE_PATH etc.) / GitHub Secrets at build time.
+# is injected via env vars / GitHub Secrets at build time.
 *.jks
 *.keystore
 keystore.properties
+*.pfx
+*.p12
+platform/windows/codesign.*
 .claude
 
 # Stray dev artifacts — must never reach the public repo.

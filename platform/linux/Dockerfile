@@ -31,7 +31,8 @@ RUN apt-get update && \
         libwebkit2gtk-4.1-dev \
         libayatana-appindicator3-dev \
         curl ca-certificates git \
-        nsis unzip imagemagick && \
+        nsis unzip imagemagick \
+        osslsigncode && \
     rm -rf /var/lib/apt/lists/*
 
 # --- nfpm (builds the .deb / .rpm bundle) — pinned for reproducibility --------

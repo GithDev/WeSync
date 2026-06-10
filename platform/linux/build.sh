@@ -42,6 +42,27 @@ need_web() {
 # file-lock issues. GOFLAGS keeps module downloads reproducible.
 export GOFLAGS="${GOFLAGS:-}"
 
+# Sign a Windows PE file in-place using Authenticode + RFC 3161 timestamp.
+# No-op when WINDOWS_CERT_PFX / WINDOWS_CERT_PASSWORD are absent (local builds).
+sign_windows_exe() {
+    local file="$1"
+    if [ -z "${WINDOWS_CERT_PFX:-}" ] || [ -z "${WINDOWS_CERT_PASSWORD:-}" ]; then
+        echo "[win] no signing cert — skipping $(basename "$file")"
+        return
+    fi
+    echo "[win] signing $(basename "$file")"
+    osslsigncode sign \
+        -pkcs12 "$WINDOWS_CERT_PFX" \
+        -pass "$WINDOWS_CERT_PASSWORD" \
+        -ts http://timestamp.digicert.com \
+        -n "WeSync" \
+        -i "https://wesync.io" \
+        -in "$file" \
+        -out "${file}.signed"
+    mv "${file}.signed" "$file"
+    echo "[win]   -> signed"
+}
+
 build_service() {
     need_web
     echo "[linux] building wesync (service, CGO_ENABLED=0)"
@@ -88,6 +109,7 @@ build_windows() {
     echo "[win] building wesync.exe (service, embeds syncthing)"
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build -ldflags="${LD_COMMON} -H windowsgui" -o /src/wesync.exe .
+    sign_windows_exe /src/wesync.exe
 
     # 3. Windows resources for the GUI exe. `go build` (unlike `wails build`)
     #    embeds NO resources, so we generate a .syso the linker picks up.
@@ -111,6 +133,7 @@ build_windows() {
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build -tags "desktop,production" -ldflags="-s -w -H windowsgui" -o /out/wesync-app.exe ./cmd/app
     rm -f /src/cmd/app/rsrc_windows_*.syso
+    sign_windows_exe /out/wesync-app.exe
 
     # 5. NSIS installer via Linux makensis. The committed .nsi uses Windows
     #    backslash source paths (..\..\), which POSIX makensis treats as literals,
@@ -123,6 +146,7 @@ build_windows() {
     echo "[win] makensis -> WeSync-${ver}-setup.exe"
     makensis -V2 "$gen"
     rm -f "$gen"
+    sign_windows_exe "/out/WeSync-${ver}-setup.exe"
     echo "[win]   -> /out/WeSync-${ver}-setup.exe"
 }
 
