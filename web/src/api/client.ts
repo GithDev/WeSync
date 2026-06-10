@@ -34,7 +34,7 @@ export interface PowerStatus {
   metered?: boolean;
   roaming?: boolean;
   activeWifi?: boolean;
-  networkAllowed?: boolean;
+  networkGatePassed?: boolean;
   triggerWindowOpen?: boolean;
   windowEndsInSecs?: number;
 }

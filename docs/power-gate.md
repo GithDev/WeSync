@@ -3,7 +3,7 @@
 What this document captures: **how WeSync decides when to run Syncthing (ST)
 in the background on Android**, and how the four trigger modes differ. Read
 this before touching anything in `mobile/gate*.go`, `mobile/events.go`,
-`mobile/watch.go`, or `mobile/poll_watcher.go`.
+or `mobile/poll_watcher.go`.
 
 The gate controls ST's **process lifecycle only** — it starts and stops the ST
 subprocess. It never touches per-folder pause state; that belongs to the user
@@ -51,34 +51,10 @@ Same as periodic but the alarm is set to specific times-of-day
 (`scheduledTimes`, "HH:MM" strings). AlarmManager wakes at each time;
 `OnTriggerAlarm` opens a session.
 
-### `on_change`
-
-The low-latency mode. A lightweight inotify file watcher (see
-[File watcher](#file-watcher-on_change)) runs continuously inside the WeSync
-service process. When a local change settles, the watcher calls
-`OpenSyncSession` and ST wakes, syncs, and sleeps again.
-
-Key characteristics:
-- **Service stays resident** between syncs — the watcher must stay alive to
-  notice changes. `ShouldStayResident()` returns `true` unconditionally in
-  this mode so the Android service never self-stops between syncs.
-- **ST itself sleeps** between sessions — this is what makes on_change battery-
-  friendly. Older designs kept ST resident and relied on its own fsWatcher,
-  which meant ST never slept.
-- **Backstop tick**: a periodic alarm also fires (at `periodicMinutes`). It
-  opens a session if there are pending local changes (`dirty == true`) or any
-  folder can receive from peers. Skipped if `dirty == false` and all folders
-  are send-only (nothing to send, nothing to receive). This is what catches
-  **incoming** changes from peers that the watcher would never see.
-- **`dirty` flag**: set by the file watcher (best-effort), cleared once ST
-  reports all peers caught up. Drives the backstop tick; also ensures the tick
-  keeps retrying when a peer is offline.
-
 ### `on_change_poll`
 
-Like `on_change` but for devices where inotify is unreliable (FUSE/emulated
-storage). Instead of a live watcher, `pollCheckChanged()` walks directory
-mtimes on every alarm tick and compares against a snapshot.
+Change detection via directory-mtime polling. `pollCheckChanged()` walks
+directory mtimes on every alarm tick and compares against a snapshot.
 
 Key characteristics:
 - **Service does NOT need to stay resident** between alarms — there is no live
@@ -92,9 +68,8 @@ Key characteristics:
   also occurs.
 - **Cold-start always syncs**: `pollCheckChanged` returns `true` when the
   snapshot is nil (first call after a restart), triggering a catch-up session.
-  This matches on_change's cold-start behaviour.
-- The alarm interval is the throttle — unlike on_change, there is no
-  sub-interval low-latency path.
+- The alarm interval is the throttle — there is no sub-interval low-latency
+  path; `OnTriggerPollAlarm` is the fast path, `OnTriggerAlarm` is the backstop.
 
 ---
 
@@ -142,22 +117,6 @@ stuck transfer from pinning ST forever.
 A folder scan (`folderBusy`) is NOT stall-guarded — scanning is local
 CPU/disk work and ST flips to idle on its own when done.
 
-### The `dirty` flag
-
-Tracks whether we have local changes not yet confirmed as synced to every peer.
-Written by the file watcher (best-effort, while ST sleeps); authoritative state
-is re-derived from ST's completion data whenever a session settles:
-
-- `reconcileDirty()` runs when ST goes idle inside an open session.
-- It asks ST whether any accepted peer still needs data from us.
-- If yes → `dirty = true`. If no and the watcher didn't fire during the probe
-  → `dirty = false`.
-- A race guard (`dirtyGen`) prevents a file change that lands mid-probe from
-  being clobbered by a stale "all caught up" result.
-
-On cold start `dirty` is always re-derived via the catch-up session — it is
-never persisted.
-
 ---
 
 ## Input events
@@ -181,37 +140,6 @@ all trigger modes without waiting for the next alarm.
 `OnAppForeground(false)` sets a `foregroundGrace` deadline (60 s) so a
 transient background (SAF folder picker, permission dialog, settings page)
 doesn't tear ST down and break the next API call.
-
----
-
-## File watcher (`on_change`)
-
-Lives in `watch.go`. An inotify watch over every synced folder path using
-`syncthing/notify` (the same library ST's own fsWatcher uses).
-
-**Why it exists separate from ST's own watcher:** ST's fsWatcher kept ST
-resident continuously, so it never slept. Moving detection into WeSync's own
-lightweight process lets ST sleep between syncs. The watcher is the low-latency
-path; correctness comes from ST's full scan on cold-start and backstop ticks.
-
-**Detection is best-effort.** inotify misses events on some Android storage
-(FUSE/emulated). The watcher is the fast path, not the guarantee — a missed
-event delays a sync, it doesn't lose one.
-
-**Coalescing is FIRST-WINS** with a fixed delay (`OnChangeDebounceMinutes`, in
-`changeBatcher`): the first change in an idle period schedules a session; further
-changes until it fires are dropped. ST scans the whole tree when it wakes, so it
-picks up the entire flurry. A fixed delay (unlike a reset-on-every-event debounce)
-can't be pushed out indefinitely by continuous edits — important for a sync tool.
-
-**WakeLock**: the Android service holds a `PARTIAL_WAKE_LOCK` for exactly as
-long as the watcher is running (signalled via `PowerHost.OnWatcherActive`).
-Without it the Go runtime freezes under Doze and inotify events stop being
-delivered to the consume goroutine.
-
-**Restart on folder change**: `restartWatcherIfActive()` tears down and
-re-arms the watcher when a folder is added or accepted, so new folders are
-watched immediately without an app restart.
 
 ---
 
@@ -258,7 +186,7 @@ Integration points:
 
 | Gate API | Android caller |
 |---|---|
-| `SetPowerHost(h)` | Service `onCreate` — registers to receive `OnSyncActive` / `OnWatcherActive` |
+| `SetPowerHost(h)` | Service `onCreate` — registers to receive `OnSyncActive` |
 | `OnAppForeground` | `MainActivity.onResume` / `onPause` |
 | `OnNetworkState` | `NetworkStateReceiver` broadcast listener |
 | `OnChargingState`, `OnBatteryLow` | `PowerStateReceiver` broadcast listener |
@@ -281,7 +209,6 @@ User changes setting in UI
   → store.SavePowerSettings (SQLite)
   → Kotlin bridge calls RefreshPowerSettings()
   → refreshSettingsFromDB() re-reads SQLite, updates g.settings
-  → updateWatcher(trigger == on_change)   // start/stop the file watcher
   → applyFSWatcherDelay()                 // async: reset ST's fsWatcher to default
   → emitEvent("settings", ...)            // visible in Recent activity
   → requestReconcile()
@@ -300,10 +227,6 @@ its default (10 s).
   is the only place that starts/stops ST. No other code touches the subprocess.
 - **No incremental state.** The loop recomputes from scratch every time. There are no
   "last applied" flags; the only genuinely stored state is `sessionEndsAt`.
-- **`dirty` is best-effort.** The watcher sets it; ST's authoritative state overwrites
-  it. On cold start, always re-derive via a catch-up session.
-- **The watcher is not the guarantee.** inotify can miss events. ST's full scan on
-  every cold-start and backstop tick is the guarantee.
 - **Never pause folders from the gate.** That path causes state-desync bugs. Pause
   state belongs to the user exclusively.
 
@@ -318,8 +241,6 @@ its default (10 s).
 | `gate_reconcile.go` | Loop that acts on the decision: starts/stops ST, probes ST, drives stall guard |
 | `gate_settings.go` | DB reads, `applyFSWatcherDelay`, folder-unpause migration, ST client helper |
 | `events.go` | Input entry points from Android (`OnAppForeground`, `OnNetworkState`, etc.) |
-| `watch.go` | `on_change` inotify file watcher + `changeBatcher` coalescing |
 | `poll_watcher.go` | `on_change_poll` directory-mtime snapshot |
 | `gate_test.go` | Unit tests for `desiredRunning` (clock-injected, no real ST) |
-| `watch_test.go` | Unit tests for `changeBatcher` |
 | `poll_watcher_test.go` | Unit tests for `pollCheckChanged` |

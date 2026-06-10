@@ -134,8 +134,10 @@ func OnBatteryLow(low bool) {
 // Power conditions are checked first — no point doing any work if ST can't run.
 // Then trigger-specific logic decides whether to open a sync session:
 //   - periodic/scheduled: always open one.
-//   - on_change_poll: primary trigger — compare directory mtimes; open a session
-//     always (poll is just for logging). The alarm interval is the throttle.
+//   - on_change_poll: safety-net backstop — compare directory mtimes for the log,
+//     then open a session unconditionally. OnTriggerPollAlarm is the primary
+//     change-detection path; this alarm is the periodic guarantee that peer
+//     changes sync even when no local structural change is detected.
 func OnTriggerAlarm() {
 	g.mu.Lock()
 	trigger := g.settings.SyncTrigger
@@ -318,7 +320,7 @@ func GateStatusJSON() string {
 		Metered          bool   `json:"metered"`
 		Roaming          bool   `json:"roaming"`
 		ActiveWifi       bool   `json:"activeWifi"`
-		NetworkAllowed   bool   `json:"networkAllowed"`
+		NetworkGatePassed bool  `json:"networkGatePassed"`
 		WindowOpen       bool   `json:"triggerWindowOpen"`
 		WindowEndsInSecs int64  `json:"windowEndsInSecs"`
 	}
@@ -333,7 +335,7 @@ func GateStatusJSON() string {
 		Metered:          snap.metered,
 		Roaming:          snap.roaming,
 		ActiveWifi:       snap.activeWifi,
-		NetworkAllowed:   snap.networkAllowed(),
+		NetworkGatePassed: snap.networkAllowed(),
 		WindowOpen:       windowOpen,
 		WindowEndsInSecs: endsIn,
 	}

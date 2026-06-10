@@ -97,16 +97,20 @@ func forceUnpauseAllFoldersOnce() {
 		if err != nil {
 			continue
 		}
-		anyUnpaused := false
+		anyUnpaused, anyFailed := false, false
 		for _, f := range folders {
 			if !f.Paused {
 				continue
 			}
 			if err := c.SetFolderPaused(f.ID, false); err != nil {
 				log.Printf("gate: migrate-unpause %s: %v", f.ID, err)
+				anyFailed = true
 				continue
 			}
 			anyUnpaused = true
+		}
+		if anyFailed {
+			continue // retry on next iteration until all folders are unpaused
 		}
 		if anyUnpaused {
 			g.emitEvent("migrate", "unpaused folders that the old gate had left paused")

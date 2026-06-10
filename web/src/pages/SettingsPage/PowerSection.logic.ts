@@ -39,7 +39,7 @@ export function describeStatus(s: PowerStatus | null, settings: PowerSettings): 
       lines.push({ good: false, text: 'Not on WiFi — waiting' });
     } else if (!s.currentSSID) {
       lines.push({ good: false, text: 'WiFi name unknown (location permission missing?)' });
-    } else if (s.networkAllowed) {
+    } else if (s.networkGatePassed) {
       lines.push({ good: true, text: `On a trusted WiFi (${s.currentSSID})` });
     } else {
       lines.push({ good: false, text: `On "${s.currentSSID}" — not in your trusted list` });
