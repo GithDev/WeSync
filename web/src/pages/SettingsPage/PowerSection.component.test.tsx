@@ -48,7 +48,6 @@ const baseSettings: PowerSettings = {
   networkMode: NetworkMode.AnyWifi,
   trustedSSIDs: [],
   pauseWhenBatteryLow: true,
-  keepSyncingWhileCharging: false,
   blockMeteredRoaming: true,
 };
 

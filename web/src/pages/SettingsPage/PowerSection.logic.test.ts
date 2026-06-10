@@ -12,7 +12,6 @@ function makeSettings(over: Partial<PowerSettings> = {}): PowerSettings {
     networkMode: NetworkMode.AnyWifi,
     trustedSSIDs: [],
     pauseWhenBatteryLow: true,
-    keepSyncingWhileCharging: false,
     blockMeteredRoaming: false,
     ...over,
   };
@@ -23,7 +22,7 @@ function makeStatus(over: Partial<PowerStatus> = {}): PowerStatus {
     hasWifi: true,
     hasMobile: false,
     currentSSID: 'Home',
-    networkAllowed: true,
+    networkGatePassed: true,
     charging: false,
     batteryLow: false,
     roaming: false,
