@@ -2,8 +2,6 @@ package com.wesync.app
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -17,73 +15,50 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
 import mobile.Mobile
-import org.json.JSONObject
-import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
-// PowerController is the Android-side executor of the power gate. It owns
-// NO policy: the Go gate decides everything and hands us a "wake plan"
-// (Mobile.wakePlanJSON) describing exactly what to schedule. We:
-//   1. Push connectivity changes to Go (Mobile.onNetworkState).
-//   2. Push battery-low and charging changes to Go (Mobile.onBatteryLow /
-//      onChargingState).
-//   3. Read the wake plan and arm AlarmManager. on_change_poll arms TWO
-//      independent alarms: a fast poll (onChangePollMinutes → ACTION_FIRE_POLL
-//      → Mobile.onTriggerPollAlarm, session only if changes detected) and a
-//      slow safety-net (periodicMinutes → ACTION_FIRE → Mobile.onTriggerAlarm,
-//      always opens a session). The two alarms rearm themselves independently
-//      so neither resets the other's countdown.
+// PowerController feeds the Go gate LIVE network + battery state WHILE THE UI IS
+// OPEN. It owns no scheduling — background wake-ups are WorkManager's job
+// (SyncScheduler/SyncWorker), and a cold worker reads a one-shot snapshot via
+// PowerSignals instead. This class exists for the foreground case: so the
+// "Now" status panel and the trusted-WiFi gate reflect reality as the network
+// changes under the user, and so a sync triggered while the app is open sees
+// current state.
 //
-// We never interpret the trigger mode's meaning ourselves — that logic
-// lives in exactly one place, the Go gate. One instance per Service
-// lifetime; created in onCreate, torn down in onDestroy.
+// One instance per WeSyncService lifetime; created in onCreate, torn down in
+// onDestroy.
 class PowerController(private val ctx: Context) {
 
     private val connectivityManager =
         ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    private val alarmManager = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
     // Persisted across process restarts: the last SSID we positively read.
-    // Used to coast through a blank background read (see currentNetworkState).
+    // Used to coast through a blank background read, and read by PowerSignals in
+    // a cold worker process (which has no live callback).
     private val prefs = ctx.getSharedPreferences("wesync_power", Context.MODE_PRIVATE)
     private var lastGoodSsid: String? = prefs.getString("last_good_ssid", null)
 
     // SSID from the location-info network callback. On Android 12+ this is the
-    // ONLY source of an unredacted SSID — getNetworkCapabilities() always
-    // strips it. Updated whenever the callback delivers wifi capabilities.
+    // ONLY source of an unredacted SSID — getNetworkCapabilities() always strips
+    // it. Updated whenever the callback delivers wifi capabilities.
     private var ssidFromCallback: String? = null
 
     private var registeredLowBatteryReceiver = false
-    private var registeredChargingReceiver = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private val liveNetworkCaps = ConcurrentHashMap<Network, NetworkCapabilities>()
 
-    // Serialises every reapply() onto one thread so two of them can't race
-    // while re-reading settings and re-arming AlarmManager.
-    private val reapplyExecutor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "wesync-power-reapply").apply { isDaemon = true }
-    }
-
     fun start() {
         registerLowBatteryReceiver()
-        registerChargingReceiver()
         // registerNetworkCallback seeds liveNetworkCaps synchronously from
         // allNetworks, so currentNetworkState() is immediately accurate.
         registerNetworkCallback()
-        // Push the initial network + battery state synchronously so Go has
-        // real values before the first onTrigger*Alarm call. Without this,
-        // a fresh process start from an alarm wake-up would have empty network
-        // state and silently skip any poll that checks networkAllowed().
+        // Push the initial network + battery state so the gate has real values.
         val net = currentNetworkState()
         try {
             Mobile.onNetworkState(net.ssid, net.hasWifi, net.hasMobile, net.metered, net.roaming, net.activeWifi)
         } catch (_: Throwable) {
         }
         try { Mobile.onBatteryLow(isBatteryLow()) } catch (_: Throwable) {}
-        try { Mobile.onChargingState(isCharging()) } catch (_: Throwable) {}
-        reapply()
     }
 
     fun stop() {
@@ -94,13 +69,6 @@ class PowerController(private val ctx: Context) {
             }
             registeredLowBatteryReceiver = false
         }
-        if (registeredChargingReceiver) {
-            try {
-                ctx.unregisterReceiver(chargingReceiver)
-            } catch (_: Throwable) {
-            }
-            registeredChargingReceiver = false
-        }
         networkCallback?.let {
             try {
                 connectivityManager.unregisterNetworkCallback(it)
@@ -109,59 +77,6 @@ class PowerController(private val ctx: Context) {
         }
         networkCallback = null
         liveNetworkCaps.clear()
-        reapplyExecutor.shutdownNow()
-    }
-
-    /// Reload the gate's settings from the DB, pull the resulting wake plan,
-    /// and arm AlarmManager to match.
-    fun reapply() {
-        reapplyExecutor.submit { reapplyBlocking() }
-    }
-
-    private fun reapplyBlocking() {
-        // The backend may still be coming up (Mobile.start runs in a
-        // goroutine and the bundled Syncthing's first-launch takes a few
-        // seconds). Retry until the gate answers with a real plan (a non-
-        // empty mode) — silently failing here was why scheduled triggers
-        // never fired on a fresh install.
-        var plan: WakePlan? = null
-        val deadlineMs = System.currentTimeMillis() + 60_000
-        var delayMs = 500L
-        while (System.currentTimeMillis() < deadlineMs) {
-            // Refresh BEFORE reading the plan so settings the user just
-            // changed are reflected (both calls hit the in-process gate).
-            try {
-                Mobile.refreshPowerSettings()
-            } catch (_: Throwable) {
-            }
-            plan = fetchWakePlan()
-            if (plan != null && plan.mode.isNotEmpty()) break
-            plan = null
-            Thread.sleep(delayMs)
-            delayMs = (delayMs * 2).coerceAtMost(5_000)
-        }
-        if (plan == null) {
-            Log.w(TAG, "reapply gave up — gate never produced a wake plan")
-            try {
-                Mobile.logPowerEvent("error", "could not load wake plan — alarms not armed")
-            } catch (_: Throwable) {
-            }
-            return
-        }
-        rearmAlarms(plan)
-        try {
-            Mobile.logPowerEvent("rearm", "alarms armed for mode=${plan.mode}")
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun fetchWakePlan(): WakePlan? {
-        return try {
-            WakePlan.fromJson(JSONObject(Mobile.wakePlanJSON()))
-        } catch (t: Throwable) {
-            Log.w(TAG, "fetchWakePlan: ${t.message}")
-            null
-        }
     }
 
     // ── Low battery ───────────────────────────────────────────────────────
@@ -189,8 +104,7 @@ class PowerController(private val ctx: Context) {
 
     // BATTERY_LOW/OKAY are not sticky, so for the initial state we read the
     // sticky ACTION_BATTERY_CHANGED and compare against the OS's OWN warning
-    // threshold (below). Transitions afterwards come from the precise
-    // broadcasts above, which fire at that exact level.
+    // threshold. Transitions afterwards come from the precise broadcasts above.
     private fun isBatteryLow(): Boolean {
         val intent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return false
         val level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
@@ -199,11 +113,6 @@ class PowerController(private val ctx: Context) {
         return level * 100 / scale <= lowBatteryWarningLevel()
     }
 
-    // The device's own low-battery warning level — the same framework value
-    // that fires ACTION_BATTERY_LOW and shows the red battery icon. Read it
-    // from the platform resource so we match exactly what this ROM uses,
-    // rather than guessing a number. Falls back to 15 only if the framework
-    // resource can't be resolved (rare/odd ROMs).
     private fun lowBatteryWarningLevel(): Int {
         return try {
             val res = android.content.res.Resources.getSystem()
@@ -214,57 +123,15 @@ class PowerController(private val ctx: Context) {
         }
     }
 
-    // ── Charging ──────────────────────────────────────────────────────────
-
-    private val chargingReceiver = object : android.content.BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            Mobile.onChargingState(isCharging())
-        }
-    }
-
-    private fun registerChargingReceiver() {
-        val f = IntentFilter().apply {
-            addAction(Intent.ACTION_POWER_CONNECTED)
-            addAction(Intent.ACTION_POWER_DISCONNECTED)
-        }
-        ctx.registerReceiver(chargingReceiver, f)
-        registeredChargingReceiver = true
-    }
-
-    // "Charging" here means ON EXTERNAL POWER, read from the battery STATUS — NOT
-    // EXTRA_PLUGGED. EXTRA_PLUGGED is unreliable: on some ROMs it reads non-zero
-    // with nothing connected, and since keepSyncingWhileCharging once defaulted ON
-    // that phantom pinned ST awake forever (the "fresh install never sleeps" bug).
-    // The battery status is the canonical signal — same as Syncthing-Android's
-    // RunConditionMonitor.isOnAcPower(): CHARGING or FULL means on power (FULL
-    // covers a 100% battery that's still plugged in, the case that wrongly ruled
-    // out BatteryManager.isCharging() before), while a truly unplugged device
-    // reports DISCHARGING. Known edge we accept (matching upstream): some devices
-    // report NOT_CHARGING for wireless / dock / "optimised charging paused at
-    // 80%", so those won't count as on-power — the safe direction (under-detect
-    // rather than the phantom that never sleeps).
-    private fun isCharging(): Boolean {
-        val intent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            ?: return false
-        val status = intent.getIntExtra(
-            android.os.BatteryManager.EXTRA_STATUS,
-            android.os.BatteryManager.BATTERY_STATUS_UNKNOWN,
-        )
-        return status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == android.os.BatteryManager.BATTERY_STATUS_FULL
-    }
-
     // ── Network state ─────────────────────────────────────────────────────
 
     // Re-register the network callback so Android immediately redelivers the
     // current network's capabilities. On Android 12+ the (unredacted) SSID is
     // only obtainable through the FLAG_INCLUDE_LOCATION_INFO callback, and that
     // callback only fires on real network transitions — granting location while
-    // already connected to the same WiFi fires nothing, so the SSID would stay
-    // unread until a reconnect or an app restart. Forcing a re-register makes
-    // the now-readable SSID land at once. No-op without location permission
-    // (there's nothing readable to refresh), so it's safe to call on every
-    // resume — a fresh read only happens for users who've actually granted it.
+    // already connected fires nothing, so the SSID would stay unread until a
+    // reconnect or app restart. Forcing a re-register makes the now-readable
+    // SSID land at once. No-op without location permission.
     fun refreshNetwork() {
         if (!hasLocationPermission()) return
         networkCallback?.let {
@@ -280,10 +147,6 @@ class PowerController(private val ctx: Context) {
 
     @SuppressLint("MissingPermission")
     private fun registerNetworkCallback() {
-        // Idempotent: never stack a second callback. start() and a racing
-        // refreshNetwork() (or refreshNetwork before start() on a cold launch)
-        // could otherwise both register, leaking the first. refreshNetwork
-        // nulls the field before re-registering, so it still gets its re-read.
         if (networkCallback != null) return
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -295,14 +158,8 @@ class PowerController(private val ctx: Context) {
         } catch (t: Throwable) {
             Log.w(TAG, "registerNetworkCallback failed", t)
         }
-        // Seed liveNetworkCaps with already-known networks so that
-        // currentNetworkState() doesn't return hasWifi=false during the
-        // initial window before any callbacks are delivered. This matters
-        // most for background cold-starts (AlarmManager wake with no UI):
-        // Android fires no network callbacks if the network didn't change,
-        // so without this seed the gate would see no WiFi and silently skip
-        // a sync on trusted_wifi mode even when the device is on the right
-        // network. Callbacks take over from here and keep the map current.
+        // Seed liveNetworkCaps with already-known networks so currentNetworkState()
+        // is accurate before any callback is delivered.
         connectivityManager.allNetworks.forEach { network ->
             connectivityManager.getNetworkCapabilities(network)?.let { caps ->
                 liveNetworkCaps[network] = caps
@@ -310,11 +167,9 @@ class PowerController(private val ctx: Context) {
         }
     }
 
-    // On Android 12+ (S) we MUST register with FLAG_INCLUDE_LOCATION_INFO or
-    // the SSID is redacted out of the capabilities the callback delivers —
-    // even with full location permission. That redaction was the whole reason
-    // the gate kept seeing a blank SSID. Below S the flagged constructor
-    // doesn't exist, so we use the plain one.
+    // On Android 12+ (S) we MUST register with FLAG_INCLUDE_LOCATION_INFO or the
+    // SSID is redacted out of the capabilities the callback delivers — even with
+    // full location permission.
     @SuppressLint("MissingPermission")
     private fun newNetworkCallback(): ConnectivityManager.NetworkCallback {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -338,9 +193,9 @@ class PowerController(private val ctx: Context) {
         }
     }
 
-    // Single funnel for every network event. When the delivered capabilities
-    // are for wifi, we grab the (now unredacted) SSID from them — this is the
-    // only reliable read path on Android 12+. Then we recompute + push state.
+    // Single funnel for every network event. When the delivered capabilities are
+    // for wifi, we grab the (now unredacted) SSID from them — the only reliable
+    // read path on Android 12+. Then we recompute + push state.
     private fun onNet(caps: NetworkCapabilities?) {
         if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             readSsidFromCaps(caps)?.let { ssidFromCallback = it }
@@ -367,42 +222,22 @@ class PowerController(private val ctx: Context) {
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) hasWifi = true
             if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) hasMobile = true
         }
-        // SSID comes from the location-info callback (the only unredacted
-        // source on Android 12+); getNetworkCapabilities above always redacts
-        // it. Empty when off wifi or before the first delivery.
         var ssid = if (hasWifi) (ssidFromCallback ?: "") else ""
         if (hasWifi) {
             if (ssid.isNotEmpty()) {
                 rememberSsid(ssid)
             } else if (hasBackgroundLocationPermission()) {
-                // The read failed this cycle — common right after a background
-                // wifi reconnect, and flaky on some OEMs. Since we hold
-                // background location (so reads are normally reliable), a blank
-                // result is transient noise, not evidence of a different
-                // network — coast on the last SSID we positively identified
-                // rather than dropping a trusted connection. Gated on
-                // background-location so a "while using"-only grant can't
-                // silently coast a sync onto an untrusted LAN.
+                // Transient blank read right after a background reconnect — coast
+                // on the last SSID we positively identified rather than dropping a
+                // trusted connection. Gated on background-location.
                 ssid = lastGoodSsid ?: ""
             }
         }
-        // Metered/roaming/activeWifi all describe the ACTIVE connection (what ST
-        // would actually use), not just "some network of this type exists".
-        // metered: Android's data-capped flag — true for ALL cellular plus any
-        // WiFi the user (or a hotspot) marked metered. roaming: active cellular
-        // on a foreign carrier (NOT_ROAMING absent). activeWifi: the active
-        // network's transport is WiFi — the gate needs this to tell a metered
-        // WiFi hotspot (which we skip) apart from ordinary metered cellular
-        // (the user's normal data plan, which we allow).
         val metered = try {
             connectivityManager.isActiveNetworkMetered
         } catch (_: Throwable) {
             false
         }
-        // getActiveNetwork() is API 23+ and NET_CAPABILITY_NOT_ROAMING is API
-        // 28+. On anything older we leave activeWifi/roaming false — the same
-        // graceful degradation the roaming read always had (a metered WiFi just
-        // won't be distinguished from cellular there).
         var activeWifi = false
         var roaming = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -412,7 +247,8 @@ class PowerController(private val ctx: Context) {
             if (activeCaps != null) {
                 activeWifi = activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
-                    activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                    activeCaps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                ) {
                     roaming = !activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING)
                 }
             }
@@ -432,15 +268,9 @@ class PowerController(private val ctx: Context) {
             PackageManager.PERMISSION_GRANTED
     }
 
-    // Reads the SSID from capabilities delivered by the network callback.
-    // Requires ACCESS_FINE_LOCATION; on Android 12+ it's only unredacted
-    // because newNetworkCallback registered with FLAG_INCLUDE_LOCATION_INFO.
     @SuppressLint("MissingPermission")
     private fun readSsidFromCaps(caps: NetworkCapabilities): String? {
         if (!hasLocationPermission()) return null
-        // API 29+ exposes WifiInfo via transportInfo (unredacted here thanks to
-        // the location-info flag on 12+; not redacted at all on 10–11). Older
-        // devices fall back to the deprecated WifiManager.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val info = caps.transportInfo as? WifiInfo
             if (info != null) return PowerLogic.cleanSsid(info.ssid)
@@ -456,157 +286,7 @@ class PowerController(private val ctx: Context) {
             PackageManager.PERMISSION_GRANTED
     }
 
-    // ── AlarmManager (sync triggers) ──────────────────────────────────────
-
-    private fun cancelAlarms() {
-        alarmManager.cancel(safetyPendingIntent())
-        alarmManager.cancel(pollPendingIntent())
-    }
-
-    // Safety-net alarm: fires ACTION_FIRE → Mobile.onTriggerAlarm() (always opens session).
-    private fun safetyPendingIntent(): PendingIntent {
-        val intent = Intent(ctx, TriggerReceiver::class.java).setAction(TriggerReceiver.ACTION_FIRE)
-        return PendingIntent.getBroadcast(
-            ctx,
-            PI_REQUEST_TRIGGER,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    // Fast change-detection alarm: fires ACTION_FIRE_POLL → Mobile.onTriggerPollAlarm()
-    // (opens session only if directory changes detected).
-    private fun pollPendingIntent(): PendingIntent {
-        val intent = Intent(ctx, TriggerReceiver::class.java).setAction(TriggerReceiver.ACTION_FIRE_POLL)
-        return PendingIntent.getBroadcast(
-            ctx,
-            PI_REQUEST_POLL,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    // Re-arm only the safety-net alarm (called after ACTION_FIRE fires).
-    // If the mode no longer uses a safety alarm (e.g. a stale alarm fired after
-    // the user switched modes while the service was dead), cancel it instead of
-    // re-arming — same logic as rearmPollAlarm's mode guard.
-    fun rearmSafetyAlarm() {
-        val plan = fetchWakePlan() ?: return
-        if (plan.mode != "periodic" && plan.mode != "on_change_poll") {
-            alarmManager.cancel(safetyPendingIntent())
-            try {
-                Mobile.logPowerEvent("rearm", "safety alarm cancelled — mode is now ${plan.mode}")
-            } catch (_: Throwable) {}
-            return
-        }
-        armSafetyAlarm(plan)
-        try {
-            Mobile.logPowerEvent("rearm", "safety alarm rearmed (every ${plan.periodicMinutes} min)")
-        } catch (_: Throwable) {}
-    }
-
-    // Re-arm only the fast poll alarm (called after ACTION_FIRE_POLL fires).
-    // If the mode has changed away from on_change_poll (e.g. a stale alarm
-    // fired after the user switched modes while the service was dead), cancel
-    // the poll alarm instead of re-arming it — otherwise onChangePollMinutes
-    // from the old settings would schedule an indefinite polling loop.
-    fun rearmPollAlarm() {
-        val plan = fetchWakePlan() ?: return
-        if (plan.mode != "on_change_poll") {
-            alarmManager.cancel(pollPendingIntent())
-            try {
-                Mobile.logPowerEvent("rearm", "poll alarm cancelled — mode is now ${plan.mode}")
-            } catch (_: Throwable) {}
-            return
-        }
-        armPollAlarm(plan)
-        try {
-            Mobile.logPowerEvent("rearm", "poll alarm rearmed (every ${plan.onChangePollMinutes} min)")
-        } catch (_: Throwable) {}
-    }
-
-    private fun armSafetyAlarm(p: WakePlan) {
-        val ms = TimeUnit.MINUTES.toMillis(p.periodicMinutes.coerceAtLeast(1).toLong())
-        val fireAt = System.currentTimeMillis() + ms
-        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, safetyPendingIntent())
-        Log.i(TAG, "armed safety alarm for ${java.util.Date(fireAt)} (every ${p.periodicMinutes} min)")
-    }
-
-    private fun armPollAlarm(p: WakePlan) {
-        val ms = TimeUnit.MINUTES.toMillis(p.onChangePollMinutes.coerceAtLeast(1).toLong())
-        val fireAt = System.currentTimeMillis() + ms
-        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pollPendingIntent())
-        Log.i(TAG, "armed poll alarm for ${java.util.Date(fireAt)} (every ${p.onChangePollMinutes} min)")
-    }
-
-    private fun rearmAlarms(p: WakePlan) {
-        cancelAlarms()
-        when (p.mode) {
-            "periodic" -> {
-                armSafetyAlarm(p)
-                Log.i(TAG, "armed periodic alarm (every ${p.periodicMinutes} min, self-rearming)")
-            }
-            "on_change_poll" -> {
-                // Two independent alarms: fast poll for change detection, slow safety-net.
-                // They rearm themselves separately so neither resets the other's countdown.
-                armPollAlarm(p)
-                armSafetyAlarm(p)
-            }
-            "scheduled" -> {
-                val next = nextScheduledMillis(p.scheduledTimes)
-                if (next != null) {
-                    alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        next,
-                        safetyPendingIntent(),
-                    )
-                    Log.i(TAG, "armed scheduled alarm for ${java.util.Date(next)}")
-                }
-            }
-            else -> {
-                // Unknown / empty mode (gate not ready yet) → arm nothing; the
-                // next reapply will set it up once the gate answers.
-            }
-        }
-    }
-
-    // Next scheduled HH:MM occurrence. Pure logic lives in PowerLogic so it
-    // can be unit-tested with an injected clock.
-    private fun nextScheduledMillis(times: List<String>): Long? =
-        PowerLogic.nextScheduledMillis(times, Calendar.getInstance())
-
     companion object {
         private const val TAG = "WeSync.PowerCtl"
-        private const val PI_REQUEST_TRIGGER = 1100
-        private const val PI_REQUEST_POLL = 1101
-
-        // Delay before the boot-kick alarm fires. A few seconds out so it lands
-        // after the network stack has settled post-reboot, but soon enough that
-        // background sync resumes promptly.
-        private const val BOOT_KICK_DELAY_MS = 15_000L
-
-        // Arm a single near-term poll alarm from a context that has no running
-        // gate yet (BootReceiver). We deliberately don't rely on starting the
-        // service directly from BOOT_COMPLETED: on Android 14+ a dataSync
-        // foreground service can't be launched from that broadcast. The poll
-        // alarm's TriggerReceiver→startForegroundService instead runs under the
-        // alarm FGS-start exemption, which has no per-type exclusion. Uses the
-        // SAME PendingIntent (action + request code) as the live poll alarm so a
-        // direct service start that DID succeed cleanly supersedes this via
-        // cancelAlarms() in the service's reapply().
-        fun scheduleBootKick(ctx: Context) {
-            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(ctx, TriggerReceiver::class.java)
-                .setAction(TriggerReceiver.ACTION_FIRE_POLL)
-            val pi = PendingIntent.getBroadcast(
-                ctx,
-                PI_REQUEST_POLL,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val fireAt = System.currentTimeMillis() + BOOT_KICK_DELAY_MS
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, fireAt, pi)
-            Log.i(TAG, "boot kick alarm armed for ${java.util.Date(fireAt)}")
-        }
     }
 }

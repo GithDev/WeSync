@@ -22,7 +22,8 @@ fun git(vararg args: String): String? = try {
 val gitVersionName: String =
     git("describe", "--tags", "--abbrev=0")?.removePrefix("v") ?: "0.0.0"
 val gitVersionCode: Int =
-    git("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
+    System.getenv("WESYNC_VERSION_CODE")?.toIntOrNull()
+        ?: git("rev-list", "--count", "HEAD")?.toIntOrNull() ?: 1
 
 android {
     namespace = "com.wesync.app"
@@ -37,7 +38,10 @@ android {
         targetSdk = 34
         versionCode = gitVersionCode
         versionName = gitVersionName
-        // We only ship arm64 for now — matches the AAR's single ABI.
+        // arm64-v8a only. (x86_64 was tried for emulator testing but Go's
+        // amd64 runtime hits Android's seccomp lstat block on API 26+, so an
+        // x86_64 build can't run on a modern emulator anyway — and shipping it
+        // would crash on x86_64 devices. Real devices are arm64.)
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -127,6 +131,11 @@ dependencies {
     // Standard AndroidX baseline. WebView is in the platform; we just need
     // AppCompatActivity as the container.
     implementation("androidx.appcompat:appcompat:1.7.0")
+
+    // WorkManager owns all background-sync scheduling (Doze-aware, survives
+    // reboot, runs the sync as a long-running foreground worker). The -ktx
+    // artifact pulls in kotlinx-coroutines, which CoroutineWorker needs.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // JVM unit tests for the pure power logic (PowerLogic.kt). These run on
     // the local JVM — no device, no Robolectric. The android.jar shipped to

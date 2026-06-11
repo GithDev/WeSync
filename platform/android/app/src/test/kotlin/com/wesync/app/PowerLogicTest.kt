@@ -125,4 +125,21 @@ class PowerLogicTest {
         val p = WakePlan.fromJson(json)
         assertEquals(listOf("07:00", "19:00"), p.scheduledTimes)
     }
+
+    // ── clampWakeIntervalMinutes (the 15-min WorkManager floor) ──────────────
+
+    @Test fun belowFloorIsClampedUpTo15() {
+        // The gate's onChangePollMinutes can be smaller than WorkManager allows;
+        // every requested interval below 15 must be raised to 15.
+        assertEquals(15L, PowerLogic.clampWakeIntervalMinutes(1))
+        assertEquals(15L, PowerLogic.clampWakeIntervalMinutes(5))
+        assertEquals(15L, PowerLogic.clampWakeIntervalMinutes(14))
+        assertEquals(15L, PowerLogic.clampWakeIntervalMinutes(0))
+    }
+
+    @Test fun atOrAboveFloorIsUnchanged() {
+        assertEquals(15L, PowerLogic.clampWakeIntervalMinutes(15))
+        assertEquals(30L, PowerLogic.clampWakeIntervalMinutes(30))
+        assertEquals(240L, PowerLogic.clampWakeIntervalMinutes(240))
+    }
 }

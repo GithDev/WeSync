@@ -30,7 +30,6 @@ export interface PowerStatus {
   hasMobile?: boolean;
   currentSSID?: string;
   batteryLow?: boolean;
-  charging?: boolean;
   metered?: boolean;
   roaming?: boolean;
   activeWifi?: boolean;

@@ -20,10 +20,6 @@
          Huawei, …) reclaim the process within minutes — taking the bundled
          Syncthing down with it. We prompt for it once at boot. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Restart WeSync after a reboot so background sync resumes without the
-         user reopening the app. -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
     <!-- Folder access: the bundled Syncthing reads/writes the user-picked
          folder via regular POSIX I/O. Without MANAGE_EXTERNAL_STORAGE it
          gets EACCES on every /storage/emulated/0/... path. Triggers an
@@ -74,21 +70,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <receiver
-            android:name=".TriggerReceiver"
-            android:exported="false" />
-
-        <!-- exported=true: BOOT_COMPLETED is delivered by the system, so the
-             receiver must be visible to it. Android only delivers it once the
-             app has been launched manually at least once since install. -->
-        <receiver
-            android:name=".BootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-            </intent-filter>
-        </receiver>
+        <!-- WorkManager runs the background sync as a long-running foreground
+             worker; its SystemForegroundService needs the dataSync type on
+             Android 14+. WorkManager also reschedules its queue across reboot,
+             so there is no boot receiver and no alarm trigger receiver. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>

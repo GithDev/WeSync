@@ -102,20 +102,6 @@ func OnNetworkState(ssid string, hasWifi bool, hasMobile bool, metered bool, roa
 	}
 }
 
-// OnChargingState reports whether the device is plugged in. When charging and
-// KeepSyncingWhileCharging is set, the gate runs ST continuously (battery is
-// no concern) — still subject to the network gate.
-func OnChargingState(charging bool) {
-	g.mu.Lock()
-	if g.charging == charging {
-		g.mu.Unlock()
-		return
-	}
-	g.charging = charging
-	g.mu.Unlock()
-	g.requestReconcile()
-}
-
 // OnBatteryLow reports whether the battery is low — the level at which
 // Android shows its low-battery warning (ACTION_BATTERY_LOW / OKAY). This is
 // NOT battery-saver mode. Only respected when PauseWhenBatteryLow is true.
@@ -191,12 +177,9 @@ func OpenSyncSession() {
 	now := time.Now()
 	// Only mark a fresh start when no session is currently open. Re-triggering an
 	// in-flight session (backstop tick, manual "Sync now", the watcher settling
-	// again) must NOT reset sessionStartedAt — it anchors the connect-grace window
-	// — nor the stall guard, which is tracking the live transfer.
+	// again) must NOT reset sessionStartedAt — it anchors the connect-grace window.
 	if !now.Before(g.sessionEndsAt) {
 		g.sessionStartedAt = now
-		g.stallPolls = 0
-		g.lastTransferBytes = 0
 	}
 	g.sessionEndsAt = now.Add(connectGrace)
 	g.mu.Unlock()
@@ -204,18 +187,15 @@ func OpenSyncSession() {
 }
 
 // ShouldStayResident reports whether the gate currently needs the bundled
-// Syncthing running for a background reason — an open sync session or "keep
-// syncing while charging" — subject to the same network/battery gates ST
-// itself obeys. The Android service polls this to decide whether to self-stop
-// after the user leaves.
+// Syncthing running for a background reason — i.e. an open sync session that
+// hasn't finished — subject to the same network/battery gates ST itself obeys.
+// The Android side polls this (the WorkManager sync worker, while it holds the
+// foreground service) to learn when a sync has completed and it can let go.
 //
-// This is the SINGLE source of truth for "must the process stay alive?": it is
-// literally the gate's own desiredRunning decision, so the service can never
-// disagree with the gate about whether ST should be up. The previous split —
-// isSyncSessionActive OR shouldKeepServiceAlive — left charging out entirely,
-// so a backgrounded periodic/scheduled sync while plugged in had the gate
-// wanting ST up but the service tearing the process down after the grace
-// anyway, silently defeating "keep syncing while charging".
+// This is the SINGLE source of truth for "must the process stay alive in the
+// background?": it is literally the gate's own desiredRunning decision with the
+// foreground reason stripped, so the Android layer can never disagree with the
+// gate about whether ST should be up.
 func ShouldStayResident() bool {
 	g.mu.Lock()
 	snap := g.snapshotLocked()
@@ -316,7 +296,6 @@ func GateStatusJSON() string {
 		HasMobile        bool   `json:"hasMobile"`
 		CurrentSSID      string `json:"currentSSID"`
 		BatteryLow       bool   `json:"batteryLow"`
-		Charging         bool   `json:"charging"`
 		Metered          bool   `json:"metered"`
 		Roaming          bool   `json:"roaming"`
 		ActiveWifi       bool   `json:"activeWifi"`
@@ -331,7 +310,6 @@ func GateStatusJSON() string {
 		HasMobile:        hasMobile,
 		CurrentSSID:      snap.currentSSID,
 		BatteryLow:       snap.batteryLow,
-		Charging:         snap.charging,
 		Metered:          snap.metered,
 		Roaming:          snap.roaming,
 		ActiveWifi:       snap.activeWifi,

@@ -1,4 +1,4 @@
-﻿package peerwire
+package peerwire
 
 import (
 	"crypto/tls"

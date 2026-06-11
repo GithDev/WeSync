@@ -22,7 +22,6 @@ type snapshot struct {
 	currentSSID     string
 	hasWifi         bool
 	batteryLow      bool
-	charging        bool
 	metered         bool
 	roaming         bool
 	activeWifi      bool
@@ -39,7 +38,6 @@ func (g *gate) snapshotLocked() snapshot {
 		currentSSID:     g.currentSSID,
 		hasWifi:         g.hasWifi,
 		batteryLow:      g.batteryLow,
-		charging:        g.charging,
 		metered:         g.metered,
 		roaming:         g.roaming,
 		activeWifi:      g.activeWifi,
@@ -59,7 +57,7 @@ func (s snapshot) desiredRunning(now time.Time) bool {
 		return true
 	}
 	// Network gate (privacy + metered/roaming cost) applies to ALL background
-	// running — even charging can't buy past it.
+	// running — an open session can't buy past it.
 	if !s.networkAllowed() {
 		return false
 	}
@@ -111,6 +109,16 @@ func (s snapshot) sessionOpen(now time.Time) bool {
 	return now.Before(s.sessionEndsAt)
 }
 
+// keepaliveBusy reports whether a poll should keep the session open. Once ST is
+// awake we let the sync finish — either our own folder is scanning/syncing, or a
+// connected peer still needs data from us. There is intentionally no stall
+// guard: a peer behind keeps extending the session until it's caught up; the
+// session lapses only when ST is genuinely idle with nobody behind. Pure so the
+// "never interrupt a sync" rule is unit-pinned without a live Syncthing.
+func keepaliveBusy(pr probeResult) bool {
+	return pr.folderBusy || pr.peerBehind
+}
+
 // reasonString assembles a short "why" string for the event log.
 func (s snapshot) reasonString() string {
 	parts := []string{}
@@ -131,10 +139,10 @@ func (s snapshot) reasonString() string {
 }
 
 // nextSessionEnd computes the new session deadline after a poll, given ST's
-// reported activity. There is no hard session cap — a large transfer may outlast
-// any fixed ceiling, so `busy` keeps extending indefinitely; the caller's stall
-// guard (see stallTick) is what stops a no-progress session. Pure + clock-
-// injected so it's unit-testable without a live Syncthing.
+// reported activity. There is no hard session cap and no stall guard — a large
+// transfer may outlast any fixed ceiling, so `busy` keeps extending the session
+// until ST goes idle on its own. Pure + clock-injected so it's unit-testable
+// without a live Syncthing.
 func nextSessionEnd(now, startedAt, current time.Time, busy, connected bool) time.Time {
 	if busy {
 		return now.Add(activeSyncExtend)
@@ -147,17 +155,4 @@ func nextSessionEnd(now, startedAt, current time.Time, busy, connected bool) tim
 	// shrink — let the existing deadline lapse so a brief idle between
 	// files doesn't tear us down mid-sync.
 	return current
-}
-
-// stallTick advances the stall-guard counter for the keepalive. progressed=true
-// (transferred bytes moved past the floor since the last poll) resets it;
-// otherwise it increments. Returns the new count and whether we've hit the stall
-// limit — at which point a peer-pull keepalive should no longer extend the
-// session. Pure so it's unit-testable.
-func stallTick(stallPolls int, progressed bool) (next int, stalled bool) {
-	if progressed {
-		return 0, false
-	}
-	next = stallPolls + 1
-	return next, next >= stallPollLimit
 }

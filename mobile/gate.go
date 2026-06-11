@@ -43,10 +43,10 @@ import (
 //   - a connected peer still needs our data → extend (let it finish pulling)
 //   - ST idle but no peer connected yet     → hold open (waiting to connect)
 //   - ST idle + connected + nobody behind   → let the deadline lapse → close
-// Not time-capped — a large transfer may outlast any fixed ceiling. A stall
-// guard closes a peer-pull keepalive that moves no bytes (stuck transfer /
-// wedged REST) instead. When the session closes, desiredRunning goes false and
-// the loop stops ST.
+// Not time-capped and never interrupted — once ST is awake a sync always runs
+// to completion; a large transfer may outlast any fixed ceiling. When the
+// session closes on its own (ST idle, nobody behind), desiredRunning goes false
+// and the loop stops ST.
 //
 // Code layout (this package)
 // ──────────────────────────
@@ -71,20 +71,12 @@ const (
 	// Once ST reports active work, extend the session in chunks of this
 	// size so a long sync keeps us alive without us predicting its length.
 	activeSyncExtend = 5 * time.Minute
-	// A sync session is deliberately NOT time-capped: it stays open as long as
-	// real work is happening — our own folder syncing/scanning, OR a connected
-	// peer still pulling data from us (a 4 GB download to a client can outlast any
-	// fixed cap). What bounds it instead is the stall guard: a peer-pull keepalive
-	// that moves no bytes for a while (a stuck transfer, or a wedged ST REST that
-	// reports "busy" on error) lets the session lapse so ST can sleep.
-	//
-	// stallPollLimit: consecutive polls with no transferred-byte progress before
-	// a peer-pull keepalive counts as stalled.
-	stallPollLimit = 3
-	// stallFloorBytes: minimum transferred-byte delta between polls to count as
-	// progress — above ST's idle keepalive/index chatter, far below any real
-	// transfer (which moves megabytes per poll).
-	stallFloorBytes = 64 * 1024
+	// A sync session is deliberately NOT time-capped and is never interrupted: it
+	// stays open as long as real work is happening — our own folder
+	// syncing/scanning, OR a connected peer still pulling data from us (a 4 GB
+	// download to a client can outlast any fixed cap). It lapses only when ST is
+	// genuinely idle with nobody behind. There is intentionally no stall guard:
+	// once ST is awake we let the sync finish on its own.
 	// How often the loop polls ST for activity while a session is open.
 	syncPollInterval = 15 * time.Second
 	// How long ST stays up after the app loses foreground. Covers a transient
@@ -125,7 +117,6 @@ type gate struct {
 	hasWifi       bool
 	hasMobile     bool
 	batteryLow    bool
-	charging      bool
 	metered       bool
 	roaming       bool
 	activeWifi    bool
@@ -135,14 +126,6 @@ type gate struct {
 	// session opened — used for the connect-grace window (no fixed session cap).
 	sessionStartedAt time.Time
 	sessionEndsAt    time.Time
-
-	// Stall guard for the keepalive: stallPolls counts consecutive polls with no
-	// transferred-byte progress while a session is open; lastTransferBytes is the
-	// cumulative in+out byte total at the previous poll. When stallPolls reaches
-	// stallPollLimit a peer-pull keepalive is treated as stalled and the session
-	// is allowed to lapse. Both reset when a session opens / ST stops.
-	stallPolls        int
-	lastTransferBytes int64
 
 	// foregroundUntil keeps ST alive for a short grace after the app loses
 	// foreground, so a transient background (folder picker, permission dialog,
@@ -203,8 +186,6 @@ func (g *gate) markStopped() {
 	g.sessionStartedAt = time.Time{}
 	g.sessionEndsAt = time.Time{}
 	g.foregroundUntil = time.Time{}
-	g.stallPolls = 0
-	g.lastTransferBytes = 0
 	g.mu.Unlock()
 	g.requestReconcile() // let the loop stop its poll ticker
 	g.notifyHost(false)  // release the radio/CPU locks on the host

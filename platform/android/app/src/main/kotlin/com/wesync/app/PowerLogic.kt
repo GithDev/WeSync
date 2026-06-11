@@ -60,6 +60,16 @@ object PowerLogic {
         if (trimmed.isEmpty() || trimmed == "<unknown ssid>") return null
         return trimmed
     }
+
+    // WorkManager's hard floor for periodic work is 15 minutes, and under Doze
+    // no mechanism wakes more often than that anyway — so any shorter requested
+    // interval (the gate's onChangePollMinutes can be smaller) is clamped up.
+    // Lives here so the floor that defines the rebuild's scheduling contract is
+    // unit-pinned on the plain JVM, away from the androidx.work-coupled caller.
+    const val MIN_WAKE_INTERVAL_MIN = 15L
+
+    fun clampWakeIntervalMinutes(requestedMinutes: Int): Long =
+        maxOf(MIN_WAKE_INTERVAL_MIN, requestedMinutes.toLong())
 }
 
 // WakePlan is the gate's instruction to the Android wrapper: what to

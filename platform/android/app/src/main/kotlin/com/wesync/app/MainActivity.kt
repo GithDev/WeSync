@@ -6,6 +6,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -51,7 +52,15 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        startForegroundService(Intent(this, WeSyncService::class.java))
+        // startForegroundService exists only on API 26+. On older devices
+        // (minSdk is 21) there's no background-start restriction, so a plain
+        // startService is correct — and the service still calls startForeground.
+        val svc = Intent(this, WeSyncService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(svc)
+        } else {
+            startService(svc)
+        }
 
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility =
@@ -88,10 +97,10 @@ class MainActivity : Activity() {
         // pause/resume, so it never toggles this on its own — same reason
         // the desktop app drives /api/active explicitly.
         notifyActive(true)
-        // UI is back — cancel any pending service shutdown so we don't
-        // tear down ST under the user's nose.
+        // UI is back — hold the backend (cancels any pending release) so we
+        // don't tear it down under the user's nose.
         try {
-            startService(Intent(this, WeSyncService::class.java).setAction(WeSyncService.ACTION_CANCEL_SHUTDOWN))
+            startService(Intent(this, WeSyncService::class.java).setAction(WeSyncService.ACTION_HOLD_UI))
         } catch (_: Throwable) {
         }
         // Returning from the system "Allow all the time" location page lands
@@ -111,12 +120,13 @@ class MainActivity : Activity() {
         // mirroring desktop's hide-to-tray. Without this the still-open
         // webview WS keeps the node "foreground" and UDP announce never stops.
         notifyActive(false)
-        // User left — start the grace timer. If they come back within
-        // GRACE_MS we just cancel; otherwise the service stops itself
-        // and the process dies (zero background overhead).
+        // User left — release the UI's claim on the backend after a short grace.
+        // If they come back within the grace the HOLD_UI on resume cancels it;
+        // otherwise the service stops and the process can be reclaimed.
+        // Background sync no longer depends on this — WorkManager wakes us.
         try {
             val intent = Intent(this, WeSyncService::class.java)
-                .setAction(WeSyncService.ACTION_SCHEDULE_SHUTDOWN)
+                .setAction(WeSyncService.ACTION_RELEASE_UI)
             startService(intent)
         } catch (_: Throwable) {
         }
@@ -260,14 +270,10 @@ class MainActivity : Activity() {
     // ── Bridge-driven actions (called by JsBridge) ────────────────────────
 
     fun onPowerSettingsChanged() {
-        // Bounce through the service intent so PowerController can re-
-        // arm alarms and call Mobile.refreshPowerSettings off the main
-        // thread.
-        try {
-            startService(Intent(this, WeSyncService::class.java).setAction(TriggerReceiver.ACTION_REARM))
-        } catch (t: Throwable) {
-            Log.w(TAG, "onPowerSettingsChanged dispatch failed", t)
-        }
+        // Re-read settings into the gate and re-arm the WorkManager schedule —
+        // the mode / interval / scheduled times may have changed. Runs off the
+        // main thread via a one-shot worker (ReapplyScheduleWorker).
+        SyncScheduler.reapply(applicationContext)
     }
 
     // Tells PowerController to re-read the WiFi SSID by re-registering its

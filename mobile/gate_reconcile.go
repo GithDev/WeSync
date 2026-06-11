@@ -68,32 +68,11 @@ func (g *gate) reconcileOnce(poll bool) {
 	if poll && snap.sessionOpen(now) {
 		pr := probeST()
 		g.mu.Lock()
-		// Stall guard: progress = transferred bytes moved past the floor since the
-		// last poll. !pr.ok (ST unreadable) counts as no progress, so a wedged REST
-		// eventually stalls out instead of pinning ST forever.
-		progressed := pr.ok && pr.transferred-g.lastTransferBytes > stallFloorBytes
-		if pr.ok {
-			g.lastTransferBytes = pr.transferred
-		}
-		var busy bool
-		switch {
-		case pr.folderBusy:
-			// Our own scan/pull — bytes needn't flow over the network (scanning is
-			// local CPU/disk), so this is NOT stall-guarded; ST flips to idle on its
-			// own when done. Reset the counter so a quiet scan can't pre-stall the
-			// peer-pull phase that follows it.
-			g.stallPolls = 0
-			busy = true
-		case pr.peerBehind:
-			// A connected peer is still pulling from us — keep the session alive,
-			// but only while bytes are actually moving. The stall guard lets a stuck
-			// transfer (or a wedged REST) lapse instead of pinning ST.
-			var stalled bool
-			g.stallPolls, stalled = stallTick(g.stallPolls, progressed)
-			busy = !stalled
-		default:
-			g.stallPolls = 0
-		}
+		// Once ST is awake we let the sync run to completion — there is no stall
+		// guard. The session stays "busy" (extending) while our own folder is
+		// scanning/syncing OR a connected peer still needs data from us; it lapses
+		// only when ST is genuinely idle with nobody behind.
+		busy := keepaliveBusy(pr)
 		g.sessionEndsAt = nextSessionEnd(time.Now(), g.sessionStartedAt, g.sessionEndsAt, busy, pr.connected)
 		g.mu.Unlock()
 		g.mu.Lock()
@@ -139,25 +118,20 @@ func (g *gate) notifyHost(active bool) {
 	}()
 }
 
-// probeResult is one poll's view of ST, split into the signals the keepalive
-// and stall guard need.
+// probeResult is one poll's view of ST, split into the signals the keepalive needs.
 type probeResult struct {
-	folderBusy  bool  // our own folder is scanning/syncing (local work in progress)
-	peerBehind  bool  // a connected peer still needs data from us (they're pulling)
-	connected   bool  // at least one peer connected
-	transferred int64 // cumulative in+out bytes — stall-guard progress signal
-	ok          bool  // transferred was readable (ST REST answered)
+	folderBusy bool // our own folder is scanning/syncing (local work in progress)
+	peerBehind bool // a connected peer still needs data from us (they're pulling)
+	connected  bool // at least one peer connected
 }
 
 // probeST samples ST for the keepalive decision. On any lookup failure it errs
 // toward "there's work" (folderBusy / peerBehind true) so a transient hiccup
-// doesn't tear ST down — but it leaves ok=false when the byte counter can't be
-// read, so the stall guard treats that as no progress and a persistently wedged
-// REST still lets the session lapse instead of pinning ST forever.
+// doesn't tear ST down mid-sync.
 func probeST() probeResult {
 	c, err := stClient()
 	if err != nil {
-		return probeResult{peerBehind: true} // assume work; ok=false → stall-guarded
+		return probeResult{peerBehind: true} // assume work on a transient failure
 	}
 	r := probeResult{}
 	if b, err := c.IsAnyFolderBusy(); err != nil {
@@ -177,10 +151,6 @@ func probeST() probeResult {
 				break
 			}
 		}
-	}
-	if tb, err := c.TransferredTotalBytes(); err == nil {
-		r.transferred = tb
-		r.ok = true
 	}
 	return r
 }

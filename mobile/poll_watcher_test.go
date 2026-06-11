@@ -124,7 +124,6 @@ func setGateForAlarmTest(t *testing.T, mutate func()) {
 	t.Helper()
 	g.mu.Lock()
 	g.appForeground = false
-	g.charging = false
 	g.batteryLow = false
 	g.hasWifi = true
 	g.metered = false
@@ -172,7 +171,6 @@ func TestOnTriggerAlarm_PowerGate_BatteryLow(t *testing.T) {
 	setGateForAlarmTest(t, func() {
 		g.batteryLow = true
 		g.settings.PauseWhenBatteryLow = true
-		g.charging = false
 	})
 	OnTriggerAlarm()
 	if pollDirs() != nil {

@@ -1,9 +1,10 @@
 # Power gate — Android background sync
 
 What this document captures: **how WeSync decides when to run Syncthing (ST)
-in the background on Android**, and how the four trigger modes differ. Read
+in the background on Android**, and how the three trigger modes differ. Read
 this before touching anything in `mobile/gate*.go`, `mobile/events.go`,
-or `mobile/poll_watcher.go`.
+`mobile/poll_watcher.go`, or the Kotlin power layer (`SyncScheduler.kt`,
+`SyncWorker.kt`, `BackendOwnership.kt`, `PowerController.kt`, `PowerSignals.kt`).
 
 The gate controls ST's **process lifecycle only** — it starts and stops the ST
 subprocess. It never touches per-folder pause state; that belongs to the user
@@ -12,235 +13,231 @@ state-desync bugs because two writers owned the same flag.)
 
 ---
 
-## The core formula
+## Two layers
 
-There is exactly one computed property:
+The model has exactly two layers. **Conditions** are absolute gates; **when**
+chooses the trigger cadence once the conditions pass.
 
-```
-desiredRunning =
-    appForeground || withinForegroundGrace     // UI needs the ST API
-    || (networkAllowed                         // privacy + cost gate
-        && (charging && keepSyncingWhileCharging   // charging override
-            || (batteryAllowed && sessionOpen)))   // normal background run
-```
+### Layer 1 — Conditions (absolute gates)
 
-`networkAllowed` is an **absolute** gate — even charging can't buy past it.
-`batteryAllowed` is bypassed when plugged in and `keepSyncingWhileCharging` is
-set. A session being open is the background reason for ST to run in every
-trigger mode (see [Session lifecycle](#session-lifecycle) below).
+If any of these fails, nothing syncs in the background. They are decided in the
+Go gate (`gate_decision.go`), never via WorkManager constraints — one decision
+maker, no drift.
 
-The pure function `snapshot.desiredRunning()` in `gate_decision.go` implements
-this exactly. Every other file just updates an input field and kicks the
-reconcile loop; the loop calls `desiredRunning()` from scratch on every wake.
+- **Network mode** (`any` / `any_wifi` / `trusted_wifi`). `trusted_wifi`
+  requires the current SSID to be in the trusted list (needs background
+  location to read the SSID while the app is closed).
+- **Block metered + roaming** — refuses roaming cellular and metered WiFi
+  (hotspot/tethering). Ordinary metered cellular (the user's normal mobile
+  data) still syncs.
+- **Pause when battery low** — Android's own low-battery signal
+  (`ACTION_BATTERY_LOW`), not battery-saver mode.
+
+These map 1:1 to the FE "Where to sync" + "Battery & data" sections
+(`web/src/pages/SettingsPage/PowerSection.tsx`), which is the authoritative
+picture of the conditions.
+
+### Layer 2 — When (trigger modes)
+
+Only once the conditions pass does the trigger decide *when* a sync session
+opens. Three modes:
+
+- **`periodic`** — a session opens every `periodicMinutes`.
+- **`scheduled`** — a session opens at specific times of day (`scheduledTimes`,
+  "HH:MM").
+- **`on_change_poll`** — a lightweight directory-mtime walker
+  (`pollCheckChanged`) runs every `onChangePollMinutes` and opens a session only
+  if something changed, PLUS a `periodicMinutes` safety-net that always opens a
+  session (so peer changes still arrive even with no local change).
+
+**15-minute floor.** All background wake-ups go through WorkManager, whose
+minimum periodic interval is 15 minutes — and under Doze no mechanism can wake
+more often than that anyway. So every interval is clamped to ≥15 min and is
+approximate (±~15 min). The FE only offers 15/30/60+ for this reason.
 
 ---
 
-## Trigger modes
+## The core decision
 
-The gate has four trigger modes. They differ only in **when a session opens**,
-not in how the session runs or closes — that part is shared.
+There is exactly one computed property, `snapshot.desiredRunning()` in
+`gate_decision.go`:
 
-### `periodic`
+```
+desiredRunning =
+    appForeground || withinForegroundGrace   // UI needs the ST API
+    || (networkAllowed                        // Layer-1 network gate
+        && batteryAllowed                      // Layer-1 battery gate
+        && sessionOpen)                        // a trigger opened a session
+```
 
-AlarmManager fires every `periodicMinutes`. `OnTriggerAlarm` checks the power
-gate and opens a session. Nothing else. ST sleeps between alarms.
+`networkAllowed` and `batteryAllowed` are absolute — an open session can't buy
+past them. Every other file just updates an input field and kicks the reconcile
+loop; the loop calls `desiredRunning()` from scratch on every wake. There is no
+charging override (the old `keepSyncingWhileCharging` feature was removed; the
+DB column is a harmless orphan).
 
-### `scheduled`
+---
 
-Same as periodic but the alarm is set to specific times-of-day
-(`scheduledTimes`, "HH:MM" strings). AlarmManager wakes at each time;
-`OnTriggerAlarm` opens a session.
+## Scheduling — WorkManager (the Android side)
 
-### `on_change_poll`
+WorkManager is the scheduling backbone. It is Doze-aware, persists its queue
+across reboot (so there is **no boot receiver**), and owns the
+foreground-service start itself — which is why the old AlarmManager path is
+gone (a background `startForegroundService` from an inexact alarm was silently
+rejected on Android 12+, killing the whole alarm chain).
 
-Change detection via directory-mtime polling. `pollCheckChanged()` walks
-directory mtimes on every alarm tick and compares against a snapshot.
+`SyncScheduler` reads the gate's wake plan (`Mobile.wakePlanJSON()`) and enqueues:
 
-Key characteristics:
-- **Service does NOT need to stay resident** between alarms — there is no live
-  watcher holding a WakeLock. `ShouldStayResident()` uses the normal
-  `desiredRunning` logic.
-- **Structural changes only**: directory mtime updates on file/directory
-  create, delete, rename — but NOT on content-only writes (editing an existing
-  file's bytes). For receive/sendreceive folders this is fine because the alarm
-  opens a session regardless of the poll result (peer changes always sync). For
-  sendonly folders a pure in-place edit won't trigger until a structural change
-  also occurs.
-- **Cold-start always syncs**: `pollCheckChanged` returns `true` when the
-  snapshot is nil (first call after a restart), triggering a catch-up session.
-- The alarm interval is the throttle — there is no sub-interval low-latency
-  path; `OnTriggerPollAlarm` is the fast path, `OnTriggerAlarm` is the backstop.
+| Mode | WorkManager requests |
+|---|---|
+| `periodic` | one `PeriodicWorkRequest` (role=`trigger`) |
+| `on_change_poll` | a poll `PeriodicWorkRequest` (role=`poll`, syncs only if changed) + a safety-net `PeriodicWorkRequest` (role=`trigger`, always syncs) |
+| `scheduled` | a `OneTimeWorkRequest` with an initial delay to the next HH:MM; re-enqueued on completion |
+
+Settings changes (and app open) call `SyncScheduler.reapply`, which runs a
+one-shot `ReapplyScheduleWorker` that re-reads the plan and re-enqueues with
+`UPDATE`/`REPLACE`. The gate owns all trigger interpretation; Android is a dumb
+executor.
+
+### The sync worker
+
+`SyncWorker` is one background wake-up, a **long-running foreground worker**:
+
+1. `setForeground()` — a dataSync FGS for the sync's duration (WorkManager owns
+   the FGS start, so the background-start restriction can't bite).
+2. `BackendOwnership.acquire("worker:<id>")` — brings the Go backend up if down.
+3. `PowerSignals.pushToGate()` — seeds current network/battery state into the
+   gate (a cold worker has no live callbacks, so this one-shot read is required
+   or the gate evaluates zero-value inputs and skips).
+4. Fires the trigger: `onTriggerPollAlarm()` (role=poll) or `onTriggerAlarm()`
+   (everything else).
+5. **Awaits session close** — polls `Mobile.shouldStayResident()` until the gate
+   lets the session lapse, so a sync is **never interrupted**. A refused trigger
+   (conditions not met) reads not-resident immediately and returns in ~1–2 s
+   without holding the FGS.
+6. Releases the backend; re-arms the next `scheduled` occurrence if applicable.
+
+**Known limitation:** Android 14 caps a `dataSync` FGS at ~6 h; a longer single
+sync makes the worker return `Result.retry()` and re-attach (ST keeps running
+under the gate across the gap).
+
+---
+
+## Backend ownership
+
+The Go backend (`Mobile.start`) is a process-global singleton shared by the UI
+foreground service and the sync worker. `BackendOwnership` refcounts owners
+(`"ui"`, `"worker:<id>"`):
+
+- `acquire` starts the backend if down (idempotent).
+- `release` stops it (`Mobile.stop`) **only** when no owner remains AND
+  `Mobile.shouldStayResident()` is false (no sync still finishing). This is the
+  single chokepoint for `Mobile.stop`.
+
+`BackendOwnership` is also the gate's single `PowerHost`: on `OnSyncActive` it
+holds/releases the MulticastLock (LAN discovery) and a partial WakeLock (CPU
+through a Doze-time sync). The UI service no longer self-stops on a timer; it
+just holds the `"ui"` token while the activity is visible and releases it after
+a short grace when the user leaves.
 
 ---
 
 ## Session lifecycle
 
 A session is the gate's permission for ST to run in the background. It has an
-expiry time (`sessionEndsAt`); when the expiry lapses without being extended,
-`desiredRunning` goes false and the loop stops ST.
+expiry (`sessionEndsAt`); when it lapses without extension, `desiredRunning`
+goes false and the reconcile loop stops ST.
 
 ### Opening
 
-`OpenSyncSession()` sets `sessionEndsAt = now + connectGrace` (120 s). The
-grace covers the cold connect path: announce → discovery → relay handshake →
-BEP — far slower than LAN when connectivity is global (level 2–3). At the old
-60 s a background trigger could lapse before a relayed peer even connected.
-
-Re-triggering an in-flight session (backstop tick, manual Sync Now, the watcher
-firing again) extends `sessionEndsAt` without resetting `sessionStartedAt` or
-the stall guard — those are anchored to the current sync, not the trigger.
+`OpenSyncSession()` sets `sessionEndsAt = now + connectGrace` (120 s). The grace
+covers the cold connect path (announce → discovery → relay handshake → BEP).
+Re-triggering an in-flight session extends `sessionEndsAt` without resetting
+`sessionStartedAt`.
 
 ### Extending
 
-The reconcile loop polls ST every 15 s while a session is open. Each poll
-decides the new `sessionEndsAt`:
+The reconcile loop polls ST every 15 s while a session is open:
 
 | ST state | Action |
 |---|---|
 | Folder busy (scanning/syncing) | Extend by `activeSyncExtend` (5 min) |
-| Connected peer still needs our data | Extend if bytes are still moving |
-| No peer connected, within connect grace | Hold open (deadline unchanged) |
-| Idle + connected + nobody behind | Let deadline lapse → session closes |
+| Connected peer still needs our data | Extend |
+| No peer connected, within connect grace | Hold open |
+| Idle + connected + nobody behind | Let the deadline lapse → session closes |
 
-There is **no fixed session cap** — a large transfer (e.g. a 4 GB download to
-a peer) can outlast any ceiling. The stall guard bounds no-progress sessions
-instead.
-
-### Stall guard
-
-When a connected peer still needs data from us but no bytes have moved for
-`stallPollLimit` (3) consecutive polls (with a floor of 64 KB per poll to
-ignore ST's own keepalive chatter), the session is treated as stalled and the
-deadline is allowed to lapse. This prevents a wedged ST REST endpoint or a
-stuck transfer from pinning ST forever.
-
-A folder scan (`folderBusy`) is NOT stall-guarded — scanning is local
-CPU/disk work and ST flips to idle on its own when done.
+**There is no stall guard and no session cap.** Once ST is awake the sync runs
+to completion — a wedged peer-pull or a hung ST REST will keep the session open
+(the Android 14 FGS cap is the only backstop). This is the deliberate
+"never interrupt a sync" guarantee.
 
 ---
 
 ## Input events
 
-All inputs enter through `events.go`. Each one updates a single field under
-the lock and kicks the reconcile loop. The loop never blocks on the caller.
+All inputs enter through `events.go`. Each updates a single field under the lock
+and kicks the reconcile loop.
 
 | Event | Function | What it changes |
 |---|---|---|
-| App foreground/background | `OnAppForeground(fg bool)` | `appForeground`, `foregroundUntil` |
-| Network change | `OnNetworkState(...)` | `currentSSID`, `hasWifi`, `hasMobile`, `metered`, `roaming`, `activeWifi` |
-| Charging plug/unplug | `OnChargingState(charging bool)` | `charging` |
-| Battery low warning | `OnBatteryLow(low bool)` | `batteryLow` |
-| AlarmManager tick | `OnTriggerAlarm()` | may call `OpenSyncSession` |
+| App foreground/background | `OnAppForeground(fg)` | `appForeground`, `foregroundUntil` |
+| Network change | `OnNetworkState(...)` | SSID, wifi/mobile, metered, roaming, activeWifi |
+| Battery low warning | `OnBatteryLow(low)` | `batteryLow` |
+| Trigger wake-up | `OnTriggerAlarm()` / `OnTriggerPollAlarm()` | may call `OpenSyncSession` |
 | Settings changed | `RefreshPowerSettings()` | re-reads DB, updates `settings` |
 
-`OnNetworkState` also triggers `OpenSyncSession()` immediately when the
-network goes from blocked to allowed — covers "came home, want sync now" for
-all trigger modes without waiting for the next alarm.
+`OnNetworkState` also opens a session immediately when the network goes from
+blocked to allowed ("came home, want sync now"), guarded against rapid
+reconnects. `OnAppForeground(false)` sets a 60 s `foregroundGrace` so a transient
+background (picker, dialog) doesn't tear ST down.
 
-`OnAppForeground(false)` sets a `foregroundGrace` deadline (60 s) so a
-transient background (SAF folder picker, permission dialog, settings page)
-doesn't tear ST down and break the next API call.
+Live network/battery state is fed by `PowerController` while the UI is open, and
+by `PowerSignals` (a one-shot read) from a cold background worker.
 
 ---
 
 ## Poll watcher (`on_change_poll`)
 
-Lives in `poll_watcher.go`. Takes a snapshot of directory mtimes across all
-synced folders and compares it against the previous snapshot on each alarm tick.
-
-**What it detects:** file/directory create, delete, rename — all update the
-parent directory's mtime on Linux/Android. Pure in-place content edits do not.
-
-**Snapshot:** stored in memory only (`poll.dirs`). Cold-start (nil snapshot)
-always returns `true` so the first alarm after a restart triggers a full sync.
-`resetPollSnapshot()` discards it when the folder set changes.
-
-**Hidden directories are skipped** (dot-prefix) to avoid walking `.stversions`,
-`.git`, `node_modules/.cache` etc. The folder root itself is exempted so a
-path beginning with `.` still works.
-
----
-
-## Network gate details
-
-`networkAllowed()` in `gate_decision.go`:
-
-1. **`blockMeteredRoaming`** (default on): refuses roaming cellular OR metered
-   WiFi (hotspot/tethering). Ordinary mobile data at home is NOT refused —
-   Android marks all cellular metered, but `metered && activeWifi` pins it to
-   "metered WiFi specifically", not "any cellular".
-
-2. **`networkMode`:**
-   - `any` — WiFi or mobile, passes once blockMeteredRoaming clears.
-   - `any_wifi` — WiFi interface must be connected (`hasWifi`).
-   - `trusted_wifi` — WiFi AND the current SSID must be in `trustedSSIDs`
-     (case-insensitive). Falls back to blocked if location permission is denied
-     (SSID becomes empty string).
-
----
-
-## Android integration
-
-The gate is embedded in the WeSync Android service (`WeSyncService.kt`).
-Integration points:
-
-| Gate API | Android caller |
-|---|---|
-| `SetPowerHost(h)` | Service `onCreate` — registers to receive `OnSyncActive` |
-| `OnAppForeground` | `MainActivity.onResume` / `onPause` |
-| `OnNetworkState` | `NetworkStateReceiver` broadcast listener |
-| `OnChargingState`, `OnBatteryLow` | `PowerStateReceiver` broadcast listener |
-| `OnTriggerAlarm` | `AlarmReceiver` — AlarmManager fires via `WakePlanJSON` schedule |
-| `RefreshPowerSettings` | Kotlin bridge after `PUT /api/power` succeeds |
-| `ShouldStayResident()` | Service `onStartCommand` shutdown path |
-| `WakePlanJSON()` | Kotlin re-arms AlarmManager after every settings change |
-| `LogPowerEvent(kind, msg)` | Kotlin logs service lifecycle events (wake, shutdown) |
-
-`WakePlanJSON()` returns the full alarm schedule so Android is a dumb executor
-— it arms whatever the gate says. The gate owns all trigger interpretation.
-
----
-
-## Settings flow
-
-```
-User changes setting in UI
-  → PUT /api/power (HTTP)
-  → store.SavePowerSettings (SQLite)
-  → Kotlin bridge calls RefreshPowerSettings()
-  → refreshSettingsFromDB() re-reads SQLite, updates g.settings
-  → applyFSWatcherDelay()                 // async: reset ST's fsWatcher to default
-  → emitEvent("settings", ...)            // visible in Recent activity
-  → requestReconcile()
-```
-
-`applyFSWatcherDelay()` is a migration cleanup function: old app versions pushed
-`OnChangeDebounceMinutes` into ST's own `fsWatcherDelayS` to throttle ST's
-watcher. WeSync now owns its own change coalescing so ST's fsWatcher just needs
-its default (10 s).
+`poll_watcher.go` takes a snapshot of directory mtimes across all synced folders
+and compares it on each poll wake-up. Detects file/dir create, delete, rename
+(which bump the parent dir mtime); pure in-place content edits do not bump it,
+which is why the safety-net always syncs regardless. Cold-start (nil snapshot)
+returns `true` to force a catch-up. Hidden directories (dot-prefix) are skipped.
 
 ---
 
 ## Key invariants
 
-- **One decision, one actor.** `desiredRunning()` is the only property, `reconcileLoop`
-  is the only place that starts/stops ST. No other code touches the subprocess.
-- **No incremental state.** The loop recomputes from scratch every time. There are no
-  "last applied" flags; the only genuinely stored state is `sessionEndsAt`.
-- **Never pause folders from the gate.** That path causes state-desync bugs. Pause
-  state belongs to the user exclusively.
+- **One decision, one actor.** `desiredRunning()` is the only property;
+  `reconcileLoop` is the only place that starts/stops ST.
+- **No incremental state.** The loop recomputes from scratch every time; the only
+  stored state is `sessionEndsAt` / `sessionStartedAt`.
+- **Never pause folders from the gate.** Pause state belongs to the user.
+- **WorkManager schedules, the gate decides.** No WorkManager network/battery
+  constraints — the gate is the single source of truth for whether ST may run.
+- **Never interrupt a sync.** Once ST is awake it runs to completion.
 
 ---
 
-## Code layout (`mobile/` package)
+## Code layout
 
+### Go (`mobile/` package)
 | File | Responsibility |
 |---|---|
-| `gate.go` | `gate` struct, lifecycle (`initGate`, `markStopped`), event log, reconcile trigger |
-| `gate_decision.go` | Pure snapshot + `desiredRunning` logic — no I/O, fully unit-testable |
-| `gate_reconcile.go` | Loop that acts on the decision: starts/stops ST, probes ST, drives stall guard |
-| `gate_settings.go` | DB reads, `applyFSWatcherDelay`, folder-unpause migration, ST client helper |
-| `events.go` | Input entry points from Android (`OnAppForeground`, `OnNetworkState`, etc.) |
+| `gate.go` | `gate` struct, lifecycle, event log, reconcile trigger |
+| `gate_decision.go` | Pure snapshot + `desiredRunning` — no I/O, unit-testable |
+| `gate_reconcile.go` | Loop that starts/stops ST, probes ST, extends the session |
+| `gate_settings.go` | DB reads, `applyFSWatcherDelay`, folder-unpause migration |
+| `events.go` | Input entry points + `OpenSyncSession` / `ShouldStayResident` / `WakePlanJSON` |
 | `poll_watcher.go` | `on_change_poll` directory-mtime snapshot |
-| `gate_test.go` | Unit tests for `desiredRunning` (clock-injected, no real ST) |
-| `poll_watcher_test.go` | Unit tests for `pollCheckChanged` |
+
+### Kotlin (`platform/android/.../com/wesync/app/`)
+| File | Responsibility |
+|---|---|
+| `SyncScheduler.kt` | Wake plan → WorkManager requests; `ReapplyScheduleWorker` |
+| `SyncWorker.kt` | Long-running foreground worker; awaits session close |
+| `BackendOwnership.kt` | Backend refcount, single `Mobile.stop` chokepoint, `PowerHost` + locks |
+| `PowerSignals.kt` | One-shot network/battery read for a cold worker |
+| `PowerController.kt` | Live network/battery/SSID feed while the UI is foreground |
+| `WeSyncService.kt` | UI-foreground host (holds the `"ui"` backend token) |
+| `SyncNotification.kt` | Shared foreground-service notification |

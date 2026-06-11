@@ -314,23 +314,27 @@ func TestNextSessionEnd(t *testing.T) {
 	})
 }
 
-func TestStallTick(t *testing.T) {
-	// Progress always resets the counter, regardless of how high it was.
-	if n, stalled := stallTick(2, true); n != 0 || stalled {
-		t.Errorf("progress: got (%d,%v), want (0,false)", n, stalled)
+func TestKeepaliveBusy(t *testing.T) {
+	// Pins the "never interrupt a sync" rule: while ST scans/syncs OR a peer is
+	// still behind, the session stays busy (keeps extending) — there is no stall
+	// cutoff. Only a fully idle ST with nobody behind lets the session lapse.
+	cases := []struct {
+		name       string
+		folderBusy bool
+		peerBehind bool
+		want       bool
+	}{
+		{"idle, nobody behind → lapse", false, false, false},
+		{"our folder scanning/syncing → busy", true, false, true},
+		{"peer still behind (no stall cutoff) → busy", false, true, true},
+		{"both → busy", true, true, true},
 	}
-	// No progress increments; stalls exactly at the limit.
-	n, stalled := 0, false
-	for i := 1; i <= stallPollLimit; i++ {
-		n, stalled = stallTick(n, false)
-		wantStalled := i >= stallPollLimit
-		if n != i || stalled != wantStalled {
-			t.Errorf("poll %d: got (%d,%v), want (%d,%v)", i, n, stalled, i, wantStalled)
-		}
-	}
-	// A single progress poll mid-stall clears it.
-	if n, stalled := stallTick(stallPollLimit, true); n != 0 || stalled {
-		t.Errorf("recover: got (%d,%v), want (0,false)", n, stalled)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := keepaliveBusy(probeResult{folderBusy: c.folderBusy, peerBehind: c.peerBehind}); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 
@@ -359,15 +363,12 @@ func TestMarkStopped_RevokesRunAuthority(t *testing.T) {
 }
 
 func TestShouldStayResident(t *testing.T) {
-	// ShouldStayResident is what the Android service polls to decide whether to
-	// self-stop. It must mirror the gate's own background run decision — and in
-	// particular honor "keep syncing while charging", which the old split
-	// (isSyncSessionActive || shouldKeepServiceAlive) ignored, letting a
-	// plugged-in periodic sync die after the grace.
+	// ShouldStayResident is what the Android side polls to learn when a background
+	// sync has finished. It must mirror the gate's own background run decision
+	// (desiredRunning with the foreground reason stripped).
 	set := func(mutate func()) {
 		g.mu.Lock()
 		g.appForeground = false
-		g.charging = false
 		g.metered = false
 		g.roaming = false
 		g.hasWifi = true
