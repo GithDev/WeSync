@@ -118,8 +118,14 @@ func (s *PeerServer) Run(ctx context.Context) error {
 	if s.tlsCert != nil {
 		srv.TLSConfig = &tls.Config{
 			Certificates: []tls.Certificate{*s.tlsCert},
-			ClientAuth:   tls.RequestClientCert,
-			MinVersion:   tls.VersionTLS12,
+			// RequireAnyClientCert, not RequestClientCert: the wire's whole premise
+			// is "identity IS the cert", so a peer MUST present one. Requesting
+			// (but not requiring) let a certless client complete the handshake and
+			// fall through to the Hello-claimed identity — a spoofable bypass. We
+			// don't verify against a CA here (peers are self-signed; the cert is
+			// pinned/derived in readInbound), we just require that one exists.
+			ClientAuth: tls.RequireAnyClientCert,
+			MinVersion: tls.VersionTLS12,
 		}
 	}
 	go func() {

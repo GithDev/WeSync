@@ -29,22 +29,22 @@ var upgrader = websocket.Upgrader{
 
 // Hub manages all outbound peer WebSocket connections and accepts inbound ones.
 type Hub struct {
-	mu          sync.RWMutex
-	selfID      string
-	selfPort    int
-	selfName    string
-	selfSTPort  int
-	selfInfo    sysinfo.DeviceInfo
-	tlsCert     *tls.Certificate // nil = no TLS (tests)
-	selfCertFP  string           // hex SHA-256 of our TLS cert, empty when no TLS
-	conns        map[string]*peerConn   // deviceID → outbound connection
-	pendingOffers map[string][]Message  // deviceID → messages to deliver on next connect
-	cb          Callbacks
-	getOutgoing func() []string
+	mu                sync.RWMutex
+	selfID            string
+	selfPort          int
+	selfName          string
+	selfSTPort        int
+	selfInfo          sysinfo.DeviceInfo
+	tlsCert           *tls.Certificate     // nil = no TLS (tests)
+	selfCertFP        string               // hex SHA-256 of our TLS cert, empty when no TLS
+	conns             map[string]*peerConn // deviceID → outbound connection
+	pendingOffers     map[string][]Message // deviceID → messages to deliver on next connect
+	cb                Callbacks
+	getOutgoing       func() []string
 	isTrusted         func(deviceID string) bool // nil = never trusted
 	isMutuallyTrusted func(deviceID string) bool // true = mutual trust confirmed this session
 	isRemoved         func(deviceID string) bool // true = was explicitly removed, re-notify with trusted:false
-	acceptFilter func(deviceID string) bool // nil = accept all
+	acceptFilter      func(deviceID string) bool // nil = accept all
 	// connLimiter caps inbound WS connections per IP to block connection-flooding.
 	connLimiter *ratelimit.Limiter
 
@@ -64,17 +64,17 @@ func NewHub(selfID, selfName string, selfPort, selfSTPort int, selfInfo sysinfo.
 		selfCertFP = hex.EncodeToString(h[:])
 	}
 	h := &Hub{
-		selfID:        selfID,
-		selfPort:      selfPort,
-		selfName:      selfName,
-		selfSTPort:    selfSTPort,
-		selfInfo:      selfInfo,
-		tlsCert:       tlsCert,
-		selfCertFP:    selfCertFP,
-		conns:         make(map[string]*peerConn),
-		pendingOffers: make(map[string][]Message),
-		cb:            cb,
-		getOutgoing:   getOutgoing,
+		selfID:            selfID,
+		selfPort:          selfPort,
+		selfName:          selfName,
+		selfSTPort:        selfSTPort,
+		selfInfo:          selfInfo,
+		tlsCert:           tlsCert,
+		selfCertFP:        selfCertFP,
+		conns:             make(map[string]*peerConn),
+		pendingOffers:     make(map[string][]Message),
+		cb:                cb,
+		getOutgoing:       getOutgoing,
 		isTrusted:         isTrusted,
 		isMutuallyTrusted: isMutuallyTrusted,
 		isRemoved:         isRemoved,
@@ -548,7 +548,13 @@ func (h *Hub) readInbound(conn *websocket.Conn, tlsState *tls.ConnectionState) {
 		peerDeviceID = certid.DeviceIDFromCert(raw) // authoritative — never from Hello claim
 		log.Printf("peerwire [inbound %s]: TLS cert received, fingerprint %.16s…", remoteIP, peerCertFP)
 	} else if tlsState != nil {
-		log.Printf("peerwire [inbound %s]: TLS active but peer sent no certificate", remoteIP)
+		// TLS is active but the peer presented no client cert. With
+		// RequireAnyClientCert on the server this is unreachable (the handshake
+		// fails first), but reject defensively so the Hello-claimed-identity
+		// fallback below can NEVER run in a TLS deployment — it exists only for
+		// the no-TLS dev/test mode (tlsState == nil) handled by the else branch.
+		log.Printf("peerwire [inbound %s]: REJECTED — TLS active but peer sent no certificate", remoteIP)
+		return
 	} else {
 		log.Printf("peerwire [inbound %s]: no TLS — skipping cert verification", remoteIP)
 	}
