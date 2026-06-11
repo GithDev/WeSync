@@ -23,7 +23,6 @@ function makeStatus(over: Partial<PowerStatus> = {}): PowerStatus {
     hasMobile: false,
     currentSSID: 'Home',
     networkGatePassed: true,
-    charging: false,
     batteryLow: false,
     roaming: false,
     metered: false,

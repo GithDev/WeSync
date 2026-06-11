@@ -32,7 +32,9 @@ const DEFAULTS: PowerSettings = {
 };
 
 const PERIODIC_OPTIONS = [15, 30, 60, 120, 240, 480];
-const POLL_OPTIONS = [1, 2, 5, 10, 15, 30, 60];
+// Background wake-ups can't fire more often than every 15 min (WorkManager's
+// floor; Doze batches anyway), so the quick-scan interval starts there too.
+const POLL_OPTIONS = [15, 30, 60];
 
 // A minutes dropdown for the periodic-interval picker.
 function MinutesSelect({
