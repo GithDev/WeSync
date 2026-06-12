@@ -134,8 +134,8 @@ windows: image-linux
 		-e WESYNC_VERSION=$(VERSION) \
 		$(IMAGE_LINUX) windows
 
-# Signed Windows installer. Requires WINDOWS_CERT_PFX (host path to a .pfx file)
-# and WINDOWS_CERT_PASSWORD to be set in the environment (CI injects from secrets).
+# Signed Windows installer. Requires WINDOWS_CERT_PFX (host path to a .pfx file).
+# WINDOWS_CERT_PASSWORD is optional — omit for password-less certificates.
 .PHONY: windows-signed
 windows-signed: image-linux
 	@mkdir -p "$(DIST)/windows"
@@ -144,7 +144,6 @@ windows-signed: image-linux
 		-v "$(WINDOWS_CERT_PFX):/cert.pfx:ro" \
 		-e WESYNC_VERSION=$(VERSION) \
 		-e WINDOWS_CERT_PFX=/cert.pfx \
-		-e WINDOWS_CERT_PASSWORD \
 		$(IMAGE_LINUX) windows
 
 # ── android (refresh embedded web, then existing android image) ──────────────

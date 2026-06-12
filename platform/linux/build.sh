@@ -43,20 +43,25 @@ need_web() {
 export GOFLAGS="${GOFLAGS:-}"
 
 # Sign a Windows PE file in-place using Authenticode + RFC 3161 timestamp.
-# No-op when WINDOWS_CERT_PFX / WINDOWS_CERT_PASSWORD are absent (local builds).
+# No-op when WINDOWS_CERT_PFX is absent (local builds). WINDOWS_CERT_PASSWORD
+# is optional — omit for password-less certificates.
 sign_windows_exe() {
     local file="$1"
-    if [ -z "${WINDOWS_CERT_PFX:-}" ] || [ -z "${WINDOWS_CERT_PASSWORD:-}" ]; then
+    if [ -z "${WINDOWS_CERT_PFX:-}" ]; then
         echo "[win] no signing cert — skipping $(basename "$file")"
         return
     fi
     echo "[win] signing $(basename "$file")"
+    local pass_args=()
+    if [ -n "${WINDOWS_CERT_PASSWORD:-}" ]; then
+        pass_args=(-pass "$WINDOWS_CERT_PASSWORD")
+    fi
     osslsigncode sign \
         -pkcs12 "$WINDOWS_CERT_PFX" \
-        -pass "$WINDOWS_CERT_PASSWORD" \
+        "${pass_args[@]}" \
         -ts http://timestamp.digicert.com \
         -n "WeSync" \
-        -i "https://wesync.io" \
+        -i "https://jaha.it" \
         -in "$file" \
         -out "${file}.signed"
     mv "${file}.signed" "$file"

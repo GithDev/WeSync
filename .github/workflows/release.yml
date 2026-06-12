@@ -10,7 +10,7 @@ name: Release
 #   KEY_ALIAS                - key alias inside the keystore
 #   KEY_PASSWORD             - key password
 #   WINDOWS_CERT_PFX_BASE64  - Windows code-signing certificate (.pfx), base64-encoded
-#   WINDOWS_CERT_PASSWORD    - password for the .pfx certificate
+#                              (password-less; no WINDOWS_CERT_PASSWORD needed)
 
 on:
   push:
@@ -124,7 +124,6 @@ jobs:
       - name: Build signed Windows installer
         env:
           WINDOWS_CERT_PFX: ${{ runner.temp }}/cert.pfx
-          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: make PODMAN=docker VERSION=$VERSION windows-signed
 
       - uses: actions/upload-artifact@v4
