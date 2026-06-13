@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.content.IntentFilter
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.BatteryManager
 import android.util.Log
@@ -41,6 +42,18 @@ object PowerSignals {
             Mobile.onBatteryLow(isBatteryLow(ctx))
         } catch (t: Throwable) {
             Log.w(TAG, "onBatteryLow push failed", t)
+        }
+    }
+
+    // Is the WiFi radio on? Distinguishes "we're home and wifi is associating
+    // after the wake" (radio on) from "we're away" (radio off). The SyncWorker
+    // uses this to decide whether a short network-settle grace is worth waiting
+    // out, or whether to bail instantly (no battery cost when away).
+    fun isWifiEnabled(ctx: Context): Boolean {
+        return try {
+            (ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).isWifiEnabled
+        } catch (_: Throwable) {
+            false
         }
     }
 
