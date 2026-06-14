@@ -141,7 +141,10 @@ dependencies {
     // WorkManager owns all background-sync scheduling (Doze-aware, survives
     // reboot, runs the sync as a long-running foreground worker). The -ktx
     // artifact pulls in kotlinx-coroutines, which CoroutineWorker needs.
-    implementation("androidx.work:work-runtime-ktx:2.11.2")
+    //
+    // Pinned to 2.9.1: work 2.10+ requires compileSdk 35 + AGP 8.6.0, a
+    // toolchain migration we're deferring. Keep work-testing below in lockstep.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // JVM unit tests for the pure power logic (PowerLogic.kt). These run on
     // the local JVM — no device, no Robolectric. The android.jar shipped to
