@@ -83,6 +83,12 @@ android {
         jvmTarget = "17"
     }
 
+    testOptions {
+        // Robolectric needs the merged manifest + resources to stand up a fake
+        // Android runtime for the WorkManager scheduling tests (SyncSchedulerTest).
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         // We exec libsyncthing.so from Go via exec.Command, which needs the
         // file to physically exist on disk in the app's nativeLibraryDir.
@@ -143,4 +149,14 @@ dependencies {
     // implementation explicitly; on the test classpath it shadows the stub.
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013")
+
+    // Robolectric + work-testing let the WorkManager scheduling glue
+    // (SyncScheduler.enqueueFromPlan → real enqueue/cancel) run on the local
+    // JVM with a fake Android runtime — no device. This covers the wiring that
+    // PowerLogicTest's pure planWorks can't: that each wake-plan mode actually
+    // arms the right unique work and a mode switch cancels the stale ones.
+    // work-testing brings SynchronousExecutor + WorkManagerTestInitHelper.
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.5.0")
+    testImplementation("androidx.work:work-testing:2.9.1")
 }
