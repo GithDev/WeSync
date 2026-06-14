@@ -9,7 +9,6 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.delay
 import mobile.Mobile
-import org.json.JSONObject
 
 // SyncWorker is one background sync wake-up. It runs as a long-running
 // foreground worker: it promotes itself to a foreground service (dataSync) for
@@ -27,7 +26,7 @@ class SyncWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val role = inputData.getString(KEY_ROLE) ?: ROLE_TRIGGER
+        val role = inputData.getString(KEY_ROLE) ?: PowerLogic.ROLE_TRIGGER
         try {
             setForeground(buildForegroundInfo())
         } catch (t: Throwable) {
@@ -54,30 +53,20 @@ class SyncWorker(
 
             // Seed current conditions BEFORE triggering, or the gate evaluates
             // network/battery against zero-value inputs and silently skips.
-            PowerSignals.pushToGate(applicationContext)
-
-            // Asymmetric network-settle grace. A wake often brings WiFi up only as
-            // we start running, so an instant trusted-WiFi check can falsely fail
-            // while WiFi is still associating. If the network gate is refusing BUT
-            // the WiFi radio is on (we're likely home), give it a few seconds to
-            // settle, re-reading each tick. If WiFi is OFF (we're away), skip
-            // entirely — instant bail, no battery cost. This rides the wake we
-            // already hold (process up, wakelock taken); it adds no new wakeups.
-            if (!networkGatePassed() && PowerSignals.isWifiEnabled(applicationContext)) {
-                val deadlineMs = System.currentTimeMillis() + NETWORK_SETTLE_MS
-                var settled = false
-                while (System.currentTimeMillis() < deadlineMs && !isStopped) {
-                    delay(2_000)
-                    PowerSignals.pushToGate(applicationContext)
-                    if (networkGatePassed()) { settled = true; break }
-                }
-                if (settled) {
-                    try { Mobile.logPowerEvent("net", "wifi settled after wake grace — proceeding") } catch (_: Throwable) {}
-                }
+            //
+            // On WiFi, read the LIVE network via a callback — get the *current*
+            // SSID (never a stale cache, which could let trusted_wifi sync on the
+            // wrong network) and wait up to NETWORK_SETTLE_MS for WiFi to
+            // associate after the wake. If WiFi is OFF (we're away), one-shot read
+            // and bail instantly — no wait, no battery cost.
+            if (PowerSignals.isWifiEnabled(applicationContext)) {
+                PowerSignals.pushLiveNetwork(applicationContext, NETWORK_SETTLE_MS)
+            } else {
+                PowerSignals.pushToGate(applicationContext)
             }
 
             when (role) {
-                ROLE_POLL -> Mobile.onTriggerPollAlarm()
+                PowerLogic.ROLE_POLL -> Mobile.onTriggerPollAlarm()
                 else -> Mobile.onTriggerAlarm()
             }
 
@@ -91,7 +80,7 @@ class SyncWorker(
             return Result.retry()
         } finally {
             BackendOwnership.release(owner)
-            if (role == ROLE_SCHEDULED) {
+            if (role == PowerLogic.ROLE_SCHEDULED) {
                 try {
                     SyncScheduler.enqueueNextScheduled(applicationContext)
                 } catch (t: Throwable) {
@@ -133,17 +122,6 @@ class SyncWorker(
         return true
     }
 
-    // True if the gate's network condition currently passes (the SAME decision
-    // the gate makes — we just read it, never duplicate it). Used by the
-    // network-settle grace to know when WiFi has come up enough to proceed.
-    private fun networkGatePassed(): Boolean {
-        return try {
-            JSONObject(Mobile.gateStatusJSON()).optBoolean("networkGatePassed", false)
-        } catch (t: Throwable) {
-            false
-        }
-    }
-
     private fun buildForegroundInfo(): ForegroundInfo {
         val notif = SyncNotification.build(applicationContext)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -166,9 +144,7 @@ class SyncWorker(
         // existing wake; bailed instantly when WiFi is off (away).
         private const val NETWORK_SETTLE_MS = 12_000L
 
+        // Input-data key; role values live in PowerLogic (ROLE_TRIGGER/POLL/SCHEDULED).
         const val KEY_ROLE = "role"
-        const val ROLE_TRIGGER = "trigger" // periodic / scheduled / safety-net → always sync
-        const val ROLE_POLL = "poll"       // on_change_poll fast path → sync only if changed
-        const val ROLE_SCHEDULED = "scheduled" // a scheduled-time trigger; re-arms the next one
     }
 }
