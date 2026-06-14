@@ -142,4 +142,55 @@ class PowerLogicTest {
         assertEquals(30L, PowerLogic.clampWakeIntervalMinutes(30))
         assertEquals(240L, PowerLogic.clampWakeIntervalMinutes(240))
     }
+
+    // ── planWorks (the scheduling decision: mode → WorkManager jobs) ─────────
+
+    @Test fun planWorksPeriodicSchedulesOnePeriodic() {
+        val w = PowerLogic.planWorks(WakePlan("periodic", 120, 30, emptyList()), at(2026, 6, 3, 10, 0))
+        assertEquals(1, w.size)
+        assertEquals(PowerLogic.WORK_PERIODIC, w[0].workName)
+        assertEquals(PowerLogic.ROLE_TRIGGER, w[0].role)
+        assertEquals(120L, w[0].periodicMinutes)
+        assertEquals(0L, w[0].oneTimeDelayMs)
+    }
+
+    @Test fun planWorksPeriodicClampsBelowFloor() {
+        val w = PowerLogic.planWorks(WakePlan("periodic", 5, 30, emptyList()), at(2026, 6, 3, 10, 0))
+        assertEquals(15L, w[0].periodicMinutes) // clamped up to the 15-min floor
+    }
+
+    @Test fun planWorksOnChangePollSchedulesPollAndSafety() {
+        val w = PowerLogic.planWorks(WakePlan("on_change_poll", 240, 5, emptyList()), at(2026, 6, 3, 10, 0))
+        assertEquals(2, w.size)
+        val poll = w.first { it.workName == PowerLogic.WORK_POLL }
+        val safety = w.first { it.workName == PowerLogic.WORK_SAFETY }
+        assertEquals(PowerLogic.ROLE_POLL, poll.role)
+        assertEquals(15L, poll.periodicMinutes) // onChangePoll 5 → clamped to 15
+        assertEquals(PowerLogic.ROLE_TRIGGER, safety.role)
+        assertEquals(240L, safety.periodicMinutes)
+    }
+
+    @Test fun planWorksScheduledIsOneTimeWithDelay() {
+        val now = at(2026, 6, 3, 10, 0)
+        val w = PowerLogic.planWorks(WakePlan("scheduled", 480, 30, listOf("19:00")), now)
+        assertEquals(1, w.size)
+        assertEquals(PowerLogic.WORK_SCHEDULED, w[0].workName)
+        assertEquals(PowerLogic.ROLE_SCHEDULED, w[0].role)
+        assertEquals(0L, w[0].periodicMinutes)                 // one-time, not periodic
+        assertEquals(9L * 60 * 60 * 1000, w[0].oneTimeDelayMs)  // 10:00 → 19:00 = 9h
+    }
+
+    @Test fun planWorksScheduledNoValidTimesIsEmpty() {
+        assertEquals(
+            emptyList<PlannedWork>(),
+            PowerLogic.planWorks(WakePlan("scheduled", 480, 30, emptyList()), at(2026, 6, 3, 10, 0)),
+        )
+    }
+
+    @Test fun planWorksUnknownModeIsEmpty() {
+        assertEquals(
+            emptyList<PlannedWork>(),
+            PowerLogic.planWorks(WakePlan("", 120, 30, emptyList()), at(2026, 6, 3, 10, 0)),
+        )
+    }
 }

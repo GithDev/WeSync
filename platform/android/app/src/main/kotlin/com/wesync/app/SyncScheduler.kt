@@ -29,10 +29,8 @@ import java.util.concurrent.TimeUnit
 object SyncScheduler {
     private const val TAG = "WeSync.Scheduler"
 
-    private const val WORK_PERIODIC = "wesync-sync-periodic"
-    private const val WORK_POLL = "wesync-sync-poll"
-    private const val WORK_SAFETY = "wesync-sync-safety"
-    private const val WORK_SCHEDULED = "wesync-sync-scheduled"
+    // Sync work names live in PowerLogic (single source for planWorks). This is
+    // the one-shot re-apply worker, separate from the scheduled sync work.
     private const val WORK_REAPPLY = "wesync-sync-reapply"
 
     // Re-read settings + wake plan and (re)arm the schedule. Runs as a one-shot
@@ -47,19 +45,17 @@ object SyncScheduler {
     // Cancel every sync wake-up (used when tearing down / debugging).
     fun cancelAll(ctx: Context) {
         val wm = WorkManager.getInstance(ctx)
-        wm.cancelUniqueWork(WORK_PERIODIC)
-        wm.cancelUniqueWork(WORK_POLL)
-        wm.cancelUniqueWork(WORK_SAFETY)
-        wm.cancelUniqueWork(WORK_SCHEDULED)
+        PowerLogic.ALL_SYNC_WORK.forEach { wm.cancelUniqueWork(it) }
     }
 
-    // Re-arm only the next scheduled-time occurrence. Called by SyncWorker after
-    // a scheduled run completes, the WorkManager analogue of the old alarm
-    // self-rearm.
+    // Re-arm the next scheduled-time occurrence. Called by SyncWorker after a
+    // scheduled run completes, the WorkManager analogue of the old alarm
+    // self-rearm. Routes through enqueueFromPlan so the decision stays in one
+    // place (planWorks).
     fun enqueueNextScheduled(ctx: Context) {
         val plan = readPlanOrNull() ?: return
         if (plan.mode != "scheduled") return
-        enqueueScheduled(ctx, plan.scheduledTimes)
+        enqueueFromPlan(ctx, plan)
     }
 
     // Read the gate's wake plan; null if the gate isn't ready (empty mode) or on
@@ -74,60 +70,38 @@ object SyncScheduler {
         }
     }
 
-    // Translate a wake plan into WorkManager requests. Cancels the modes we're
-    // not using so a mode switch never leaves stale work behind.
+    // Translate a wake plan into WorkManager requests. The DECISION (which jobs,
+    // which intervals) lives in PowerLogic.planWorks — here we only enqueue what
+    // it returns and cancel every other sync work, so a mode switch never leaves
+    // stale work behind.
     fun enqueueFromPlan(ctx: Context, plan: WakePlan) {
         val wm = WorkManager.getInstance(ctx)
-        when (plan.mode) {
-            "periodic" -> {
-                wm.cancelUniqueWork(WORK_POLL)
-                wm.cancelUniqueWork(WORK_SAFETY)
-                wm.cancelUniqueWork(WORK_SCHEDULED)
-                enqueuePeriodic(wm, WORK_PERIODIC, plan.periodicMinutes, SyncWorker.ROLE_TRIGGER)
-            }
-            "on_change_poll" -> {
-                // Two independent periodics: a poll (opens a session only if a
-                // structural change is detected) and a safety net (always syncs,
-                // to receive peer changes).
-                wm.cancelUniqueWork(WORK_PERIODIC)
-                wm.cancelUniqueWork(WORK_SCHEDULED)
-                enqueuePeriodic(wm, WORK_POLL, plan.onChangePollMinutes, SyncWorker.ROLE_POLL)
-                enqueuePeriodic(wm, WORK_SAFETY, plan.periodicMinutes, SyncWorker.ROLE_TRIGGER)
-            }
-            "scheduled" -> {
-                wm.cancelUniqueWork(WORK_PERIODIC)
-                wm.cancelUniqueWork(WORK_POLL)
-                wm.cancelUniqueWork(WORK_SAFETY)
-                enqueueScheduled(ctx, plan.scheduledTimes)
-            }
-            else -> Log.w(TAG, "unknown wake-plan mode '${plan.mode}' — leaving schedule unchanged")
-        }
-    }
-
-    private fun enqueuePeriodic(wm: WorkManager, name: String, minutes: Int, role: String) {
-        val interval = PowerLogic.clampWakeIntervalMinutes(minutes)
-        val req = PeriodicWorkRequestBuilder<SyncWorker>(interval, TimeUnit.MINUTES)
-            .setInputData(workDataOf(SyncWorker.KEY_ROLE to role))
-            .build()
-        wm.enqueueUniquePeriodicWork(name, ExistingPeriodicWorkPolicy.UPDATE, req)
-        Log.i(TAG, "armed $name every $interval min (role=$role)")
-    }
-
-    private fun enqueueScheduled(ctx: Context, times: List<String>) {
-        val wm = WorkManager.getInstance(ctx)
-        val next = PowerLogic.nextScheduledMillis(times, Calendar.getInstance())
-        if (next == null) {
-            wm.cancelUniqueWork(WORK_SCHEDULED)
-            Log.i(TAG, "no valid scheduled times — scheduled work cancelled")
+        val planned = PowerLogic.planWorks(plan, Calendar.getInstance())
+        val active = planned.map { it.workName }.toSet()
+        PowerLogic.ALL_SYNC_WORK.forEach { if (it !in active) wm.cancelUniqueWork(it) }
+        if (planned.isEmpty()) {
+            Log.w(TAG, "wake plan '${plan.mode}' yielded no work — nothing scheduled")
             return
         }
-        val delayMs = (next - System.currentTimeMillis()).coerceAtLeast(0)
-        val req = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
-            .setInputData(workDataOf(SyncWorker.KEY_ROLE to SyncWorker.ROLE_SCHEDULED))
-            .build()
-        wm.enqueueUniqueWork(WORK_SCHEDULED, ExistingWorkPolicy.REPLACE, req)
-        Log.i(TAG, "armed scheduled work for ${java.util.Date(next)}")
+        planned.forEach { enqueue(wm, it) }
+    }
+
+    private fun enqueue(wm: WorkManager, p: PlannedWork) {
+        val data = workDataOf(SyncWorker.KEY_ROLE to p.role)
+        if (p.periodicMinutes > 0) {
+            val req = PeriodicWorkRequestBuilder<SyncWorker>(p.periodicMinutes, TimeUnit.MINUTES)
+                .setInputData(data)
+                .build()
+            wm.enqueueUniquePeriodicWork(p.workName, ExistingPeriodicWorkPolicy.UPDATE, req)
+            Log.i(TAG, "armed ${p.workName} every ${p.periodicMinutes} min (role=${p.role})")
+        } else {
+            val req = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInitialDelay(p.oneTimeDelayMs, TimeUnit.MILLISECONDS)
+                .setInputData(data)
+                .build()
+            wm.enqueueUniqueWork(p.workName, ExistingWorkPolicy.REPLACE, req)
+            Log.i(TAG, "armed ${p.workName} (one-time +${p.oneTimeDelayMs}ms, role=${p.role})")
+        }
     }
 }
 

@@ -70,7 +70,55 @@ object PowerLogic {
 
     fun clampWakeIntervalMinutes(requestedMinutes: Int): Long =
         maxOf(MIN_WAKE_INTERVAL_MIN, requestedMinutes.toLong())
+
+    // Unique WorkManager work names (single source — SyncScheduler enqueues
+    // exactly what planWorks() returns and cancels the rest).
+    const val WORK_PERIODIC = "wesync-sync-periodic"
+    const val WORK_POLL = "wesync-sync-poll"
+    const val WORK_SAFETY = "wesync-sync-safety"
+    const val WORK_SCHEDULED = "wesync-sync-scheduled"
+    val ALL_SYNC_WORK = listOf(WORK_PERIODIC, WORK_POLL, WORK_SAFETY, WORK_SCHEDULED)
+
+    // Worker roles — the input-data value SyncWorker reads to pick its trigger.
+    const val ROLE_TRIGGER = "trigger"     // always opens a session (periodic / on_change_poll safety net)
+    const val ROLE_POLL = "poll"           // on_change_poll fast path — sync only if changed
+    const val ROLE_SCHEDULED = "scheduled" // a scheduled-time trigger; the worker re-arms the next one
+
+    // planWorks reduces a wake plan to the EXACT set of WorkManager jobs that
+    // should be active. Pure (clock injected) so the scheduling decision is
+    // unit-testable; SyncScheduler just enqueues what this returns and cancels
+    // every other ALL_SYNC_WORK entry. Intervals are clamped to the 15-min floor
+    // here. Empty list = schedule nothing (unknown/empty mode, or scheduled mode
+    // with no valid times).
+    fun planWorks(plan: WakePlan, now: Calendar): List<PlannedWork> = when (plan.mode) {
+        "periodic" -> listOf(
+            PlannedWork(WORK_PERIODIC, ROLE_TRIGGER, periodicMinutes = clampWakeIntervalMinutes(plan.periodicMinutes)),
+        )
+        "on_change_poll" -> listOf(
+            PlannedWork(WORK_POLL, ROLE_POLL, periodicMinutes = clampWakeIntervalMinutes(plan.onChangePollMinutes)),
+            PlannedWork(WORK_SAFETY, ROLE_TRIGGER, periodicMinutes = clampWakeIntervalMinutes(plan.periodicMinutes)),
+        )
+        "scheduled" -> {
+            val next = nextScheduledMillis(plan.scheduledTimes, now)
+            if (next == null) {
+                emptyList()
+            } else {
+                listOf(PlannedWork(WORK_SCHEDULED, ROLE_SCHEDULED, oneTimeDelayMs = (next - now.timeInMillis).coerceAtLeast(0)))
+            }
+        }
+        else -> emptyList()
+    }
 }
+
+// PlannedWork is one WorkManager job the wake plan implies. periodicMinutes > 0
+// means a periodic request at that interval; otherwise it's a one-time request
+// fired after oneTimeDelayMs (the scheduled-time case).
+data class PlannedWork(
+    val workName: String,
+    val role: String,
+    val periodicMinutes: Long = 0,
+    val oneTimeDelayMs: Long = 0,
+)
 
 // WakePlan is the gate's instruction to the Android wrapper: what to
 // schedule, nothing more. Mirrors the JSON from Mobile.wakePlanJSON(). The
