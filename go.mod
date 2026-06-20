@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	fyne.io/systray v1.12.2
 	github.com/glebarez/sqlite v1.11.0
-	github.com/godbus/dbus/v5 v5.1.0
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/net v0.56.0
