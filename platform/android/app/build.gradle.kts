@@ -144,7 +144,7 @@ dependencies {
     //
     // Pinned to 2.9.1: work 2.10+ requires compileSdk 35 + AGP 8.6.0, a
     // toolchain migration we're deferring. Keep work-testing below in lockstep.
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
 
     // JVM unit tests for the pure power logic (PowerLogic.kt). These run on
     // the local JVM — no device, no Robolectric. The android.jar shipped to
@@ -161,5 +161,5 @@ dependencies {
     // work-testing brings SynchronousExecutor + WorkManagerTestInitHelper.
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core:1.5.0")
-    testImplementation("androidx.work:work-testing:2.9.1")
+    testImplementation("androidx.work:work-testing:2.11.2")
 }
