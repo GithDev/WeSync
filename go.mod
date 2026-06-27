@@ -10,7 +10,7 @@ require (
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/net v0.56.0
 	golang.org/x/sys v0.46.0
-	gorm.io/gorm v1.31.1
+	gorm.io/gorm v1.31.2
 )
 
 require (
