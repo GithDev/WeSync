@@ -17,7 +17,7 @@
 PODMAN            ?= podman
 ROOT              := $(CURDIR)
 DIST              := $(ROOT)/dist
-SYNCTHING_VERSION ?= v2.1.1
+SYNCTHING_VERSION ?= v2.1.3
 VERSION           ?= 0.1.0
 
 IMAGE_LINUX   := wesync-linux
