@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
-    "@tailwindcss/oxide-linux-x64-gnu": "^4.3.0",
     "@tailwindcss/vite": "^4.3.0",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.17.0",
@@ -23,6 +22,10 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.1",
     "tailwindcss": "^4.3.0"
+  },
+  "comment:optionalDependencies": "Linux-only Tailwind native binary, pinned for Linux CI. @tailwindcss/oxide already picks the correct platform binary via its own optionalDependencies; as a hard dependency this entry broke `npm install`/`npm update` on Windows (EBADPLATFORM).",
+  "optionalDependencies": {
+    "@tailwindcss/oxide-linux-x64-gnu": "^4.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

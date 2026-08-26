@@ -19,6 +19,14 @@ const (
 
 func main() {
 	initAppLog()
+
+	// Windows only: supervise a child so a WebView2 crash restarts the app
+	// instead of leaving a stale, unresponsive tray icon. See respawn_windows.go.
+	if !isSupervisedChild() {
+		superviseChild()
+		return
+	}
+
 	app := NewApp()
 
 	// --hidden: start minimized to the tray without showing the window. The
