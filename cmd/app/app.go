@@ -62,7 +62,6 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	cmd := exec.Command(svcExe)
-	configureBackendCmd(cmd)
 	if err := cmd.Start(); err != nil {
 		log.Printf("app: ERROR starting backend: %v", err)
 		a.showStartupError(ctx, "WeSync's background service could not be started.")

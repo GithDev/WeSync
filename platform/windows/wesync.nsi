@@ -37,12 +37,6 @@ Section "WeSync" SecMain
   ; before attempting to overwrite the binary files.
   DeleteRegValue HKCU "${AUTORUN_KEY}" "WeSync"
   DeleteRegValue HKCU "${AUTORUN_KEY}" "WeSync App"
-  ; wesync-app.exe supervises a child of the same name and restarts it when it
-  ; dies unexpectedly (WebView2 crash recovery — see cmd/app/respawn_windows.go).
-  ; Signal the shutdown event FIRST so the kill below reads as "stop", not
-  ; "crash"; otherwise the supervisor could relaunch mid-upgrade and hold a lock
-  ; on the .exe we are about to overwrite.
-  nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "$$e = New-Object System.Threading.EventWaitHandle($$true, [System.Threading.EventResetMode]::ManualReset, \"Local\WeSyncAppShutdown\"); $$e.Set() | Out-Null"'
   nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "\"wesync\",\"wesync-app\" | ForEach-Object { Get-Process $$_ -ErrorAction SilentlyContinue | ForEach-Object { $$_.Kill(); $$_.WaitForExit(5000) } }"'
   nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "Get-Process syncthing -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like \"*WeSync*\" } | ForEach-Object { $$_.Kill(); $$_.WaitForExit(3000) }"'
 
@@ -130,9 +124,6 @@ SectionEnd
 Section "Uninstall"
   DeleteRegValue HKCU "${AUTORUN_KEY}" "WeSync"
   DeleteRegValue HKCU "${AUTORUN_KEY}" "WeSync App"
-  ; Tell the wesync-app supervisor this is a real shutdown before killing it,
-  ; so it does not treat the kill as a crash and relaunch (see SecMain).
-  nsExec::ExecToLog 'powershell -NoProfile -NonInteractive -Command "$$e = New-Object System.Threading.EventWaitHandle($$true, [System.Threading.EventResetMode]::ManualReset, \"Local\WeSyncAppShutdown\"); $$e.Set() | Out-Null"'
   ExecWait 'taskkill /F /IM "wesync.exe"' $0
   ExecWait 'taskkill /F /IM "wesync-app.exe"' $0
   ExecWait 'taskkill /F /IM "syncthing.exe"' $0
