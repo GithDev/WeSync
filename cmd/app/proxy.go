@@ -60,13 +60,28 @@ func newProxy(app *App, targetURL string) http.Handler {
 	})
 }
 
+// The webview navigates here as soon as the window is created — normally before
+// the backend has finished starting. Nothing navigates it again afterwards, so
+// without the self-reload below the app sits on "Starting WeSync…" forever even
+// once the backend is healthy.
 func serveLoadingPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, must-revalidate")
 	w.Write([]byte(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WeSync</title>` + //nolint:errcheck
 		`<style>body{margin:0;display:flex;align-items:center;justify-content:center;height:100vh;` +
 		`background:#f8fafc;font-family:system-ui,sans-serif;}` +
 		`.d{animation:p 1.2s ease-in-out infinite;}@keyframes p{0%,100%{opacity:.3}50%{opacity:1}}</style></head>` +
-		`<body><p style="color:#94a3b8;font-size:14px"><span class="d">●</span>&nbsp;Starting WeSync…</p></body></html>`))
+		`<body><p style="color:#94a3b8;font-size:14px"><span class="d">●</span>&nbsp;Starting WeSync…</p>` +
+		`<script>
+(function(){
+  function poll(){
+    fetch('/api/status',{cache:'no-store'})
+      .then(function(r){ if(r.ok){ location.reload(); } else { setTimeout(poll,500); } })
+      .catch(function(){ setTimeout(poll,500); });
+  }
+  setTimeout(poll,500);
+})();
+</script></body></html>`))
 }
 
 func isWebSocketUpgrade(r *http.Request) bool {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"html"
 	"log"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +21,12 @@ import (
 
 // Suppress unused import warning — runtime used for GOOS check in loadIcon.
 var _ = runtime.GOOS
+
+// Generous: a cold start has to unpack and launch Syncthing.
+const (
+	backendStartTimeout = 30 * time.Second
+	backendPollInterval = 500 * time.Millisecond
+)
 
 type App struct {
 	ctx      context.Context
@@ -49,28 +57,32 @@ func (a *App) startup(ctx context.Context) {
 
 	if _, err := os.Stat(svcExe); err != nil {
 		log.Printf("app: ERROR — %s not found: %v", svcExe, err)
+		a.showStartupError(ctx, "WeSync's background service is missing from the installation.")
 		return
 	}
 
 	cmd := exec.Command(svcExe)
+	configureBackendCmd(cmd)
 	if err := cmd.Start(); err != nil {
 		log.Printf("app: ERROR starting backend: %v", err)
+		a.showStartupError(ctx, "WeSync's background service could not be started.")
 		return
 	}
 	log.Printf("app: backend started (pid %d)", cmd.Process.Pid)
 	go func() { cmd.Wait() }() //nolint:errcheck
 
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(backendStartTimeout)
 	for time.Now().Before(deadline) {
 		if isBackendReady() {
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(backendPollInterval)
 	}
 
 	if !isBackendReady() {
-		log.Printf("app: ERROR — backend did not respond within 30s")
+		log.Printf("app: ERROR — backend did not respond within %s", backendStartTimeout)
 		wailsRuntime.LogWarningf(ctx, "backend did not start in time — check wesync.log")
+		a.showStartupError(ctx, "WeSync's background service did not start in time.")
 		return
 	}
 
@@ -90,6 +102,21 @@ func loadUIFromBackend(ctx context.Context) {
 		return
 	}
 	wailsRuntime.WindowExecJS(ctx, `window.location.replace("http://localhost:47820")`)
+}
+
+// Replaces the loading page, which otherwise polls forever. Also forces the
+// window visible: a --hidden autostart would leave only a tray icon for an app
+// that is not working.
+func (a *App) showStartupError(ctx context.Context, msg string) {
+	wailsRuntime.WindowShow(ctx)
+	wailsRuntime.WindowExecJS(ctx, `(function(){
+  document.body.innerHTML = `+strconv.Quote(
+		`<div style="max-width:32rem;padding:0 2rem;text-align:center;color:#334155;font-family:system-ui,sans-serif">`+
+			`<p style="font-size:15px;font-weight:600;margin:0 0 .5rem">WeSync could not start</p>`+
+			`<p style="font-size:13px;color:#64748b;margin:0">`+html.EscapeString(msg)+
+			` Restart WeSync, and if it keeps happening check wesync.log in the WeSync data folder.</p></div>`,
+	)+`;
+})();`)
 }
 
 func (a *App) shutdown(_ context.Context) {
