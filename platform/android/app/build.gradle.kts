@@ -136,7 +136,7 @@ dependencies {
 
     // Standard AndroidX baseline. WebView is in the platform; we just need
     // AppCompatActivity as the container.
-    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.appcompat:appcompat:1.8.0")
 
     // WorkManager owns all background-sync scheduling (Doze-aware, survives
     // reboot, runs the sync as a long-running foreground worker). The -ktx
