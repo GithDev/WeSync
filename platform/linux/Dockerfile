@@ -15,7 +15,7 @@
 
 # Fully-qualified so it resolves under podman too (no unqualified-search registries).
 # Same base family as platform/android/Dockerfile -> shared base layers.
-FROM docker.io/library/golang:1.25-bookworm
+FROM docker.io/library/golang:1.27-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 
